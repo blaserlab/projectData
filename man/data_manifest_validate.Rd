@@ -36,3 +36,7 @@ A manifest record replaces every automatically discovered candidate with
 the same \code{Resource}. Declaring a resource twice in one manifest, whether or
 not the records agree, is an error.
 }
+\seealso{
+\code{\link[=data_manifest_draft]{data_manifest_draft()}} and \code{\link[=data_manifest_write]{data_manifest_write()}} to produce a
+manifest.
+}

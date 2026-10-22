@@ -135,12 +135,15 @@ inventory_datasets <- function(root) {
 #' @param root Package root against which `Source` paths are checked. Defaults
 #'   to two directories above `file`.
 #' @return A list of validated descriptors, invisibly.
+#' @seealso [data_manifest_draft()] and [data_manifest_write()] to produce a
+#'   manifest.
 #' @export
 data_manifest_validate <- function(file, root = dirname(dirname(file))) {
   invisible(read_manifest(file, root, root_context(root)))
 }
 
-read_manifest <- function(file, root, context) {
+# `check = FALSE` only parses; used to verify what the writer produced.
+read_manifest <- function(file, root, context, check = TRUE) {
   fail <- function(...) pd_abort("Invalid manifest ", basename(dirname(file)), "/",
                                  basename(file), ": ", ..., class = "projectData_manifest_error")
   m <- tryCatch(read.dcf(file), error = function(e) fail("not readable as DCF (", conditionMessage(e), ")"))
@@ -188,7 +191,7 @@ read_manifest <- function(file, root, context) {
               recorded_class = get(i, "RecordedClass"), adapter = adapter,
               origin = "manifest")
     d <- normalize_descriptor(d, default_loader = NULL)
-    check_descriptor(d, root, context, fail = fail)
+    if (check) check_descriptor(d, root, context, fail = fail)
     d
   })
 }

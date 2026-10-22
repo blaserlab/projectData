@@ -136,6 +136,61 @@ only objects that need it fail, with an actionable message. Use
 `data_loader_adapter("tinydiskAdapter")` to register an adapter explicitly.
 Validate a manifest with `data_manifest_validate()`.
 
+### Authoring a manifest
+
+Writing DCF by hand is error-prone, so projectData can draft and write one.
+`data_manifest_draft()` asks the **already registered** adapters what they would
+claim under a root (`inst/` in a source tree, or an installed package
+directory). It uses discovery only: nothing is opened and nothing is written.
+`data_manifest_write()` validates the descriptors, writes them, and reads the
+text back to check that it reproduces them exactly.
+
+```{r authoring}
+inst <- tempfile("inst-")
+tinymat_write(matrix(as.double(1:6), 2, 3), file.path(inst, "extdata", "scores.tinymat"))
+
+drafts <- data_manifest_draft(inst)
+drafts[[1]][c("resource", "loader", "source", "objects")]
+```
+
+A draft does not know which package supplies the loader, so say so if projectData
+should load the adapter on first access. Edit the descriptors as ordinary lists,
+then write:
+
+```{r authoring-write}
+drafts <- lapply(drafts, function(d) {
+  d$title <- "Scores"
+  d$options <- list(work_copy = "true")
+  d$adapter <- list(package = "tinydiskAdapter")
+  d
+})
+manifest <- file.path(inst, "projectData", "manifest.dcf")
+data_manifest_write(drafts, manifest)
+writeLines(readLines(manifest))
+```
+
+The result records whether the loader's own `validate()` ran. Here it did,
+because the loader was registered. Without it, the descriptor is checked for
+structure only and a `projectData_validation_skipped` message says so; register
+the adapter and run `data_manifest_validate()` before shipping.
+
+A manifest holds less than a descriptor can, and the writer refuses rather than
+change anything silently, for example a per-object title that differs between
+objects, an option value containing `;`, or a `Source` that leaves the root:
+
+```{r authoring-errors, error = TRUE}
+data_manifest_write(list(resource = "scores", loader = "tinydisk::tinymat",
+                         source = "../elsewhere", objects = "scores"),
+                    file.path(inst, "projectData", "other.dcf"))
+```
+
+The writer also refuses to overwrite a file unless `overwrite = TRUE`, and to
+write inside an installed package. If several adapters claim one resource, or
+an adapter claims a standard `data/` dataset, `data_manifest_draft()` leaves it
+out and warns (the `conflicts` attribute lists them); name the winning loader
+with `loaders =` to include it. Put the file at `inst/projectData/manifest.dcf`
+in the package source.
+
 ### Precedence
 
 Discovery uses metadata only and never opens a resource. For each resource
