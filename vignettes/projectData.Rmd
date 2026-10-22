@@ -242,8 +242,11 @@ data_detach()
 ```
 
 `data_detach()` removes the attached collections and the environment projectData
-created, and forgets them. It does not delete files or affect objects you
-already hold. `data_detach("batch2")` removes just one collection. Packages you
+created, and forgets them. It does not delete files or modify objects you
+already hold, so an object kept in a variable can keep reading its backing
+files after detachment. That is not a promise about replacing or removing the
+installed package: a disk-backed object that references installed files may stop
+working then. See `?data_detach`. `data_detach("batch2")` removes just one collection. Packages you
 only reached through `data_get(package = )` are forgotten the same way (they
 were never on the search path); a later `data_get()` simply opens them again.
 

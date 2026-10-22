@@ -275,6 +275,53 @@ test_that("detaching an unattached disk-backed registration leaves backing files
   expect_equal(sum(n$log == "pdref/mat"), 2L)
 })
 
+# The test above reads through retained objects after detachment and removes a
+# work copy's source. This one adds what it does not establish: backing files
+# are byte-identical after cleanup, both access paths are covered, and removing
+# the installation breaks an object that references it but not a work copy.
+test_that("retained disk-backed objects stay readable after cleanup; only installed references depend on the installation", {
+  local_clean_session()
+  data_loader_add(tinydisk_loader())
+  for (mode in c("attached", "explicit")) {
+    lib <- fixture_library()
+    fixture_package(lib, "pdlife", lazy = FALSE, datasets = list(),
+      files = list(
+        "extdata/inst.tinymat" = function(p) tinymat_write(matrix(as.double(1:6), 2, 3), p),
+        "extdata/wc.tinymat" = function(p) tinymat_write(matrix(as.double(11:16), 2, 3), p)),
+      manifest = c("ManifestVersion: 1", "",
+                   "Resource: inst", "Loader: tinydisk::tinymat", "Source: extdata/inst.tinymat", "Objects: inst_mat", "",
+                   "Resource: wc", "Loader: tinydisk::tinymat", "Source: extdata/wc.tinymat",
+                   "Objects: wc_mat", "Options: work_copy=true"))
+    if (mode == "attached") {
+      data_attach("pdlife", lib.loc = lib)
+      inst <- data_get("inst_mat")
+      wc <- data_get("wc_mat")
+    } else {
+      inst <- data_get("inst_mat", package = "pdlife", lib.loc = lib)
+      wc <- data_get("wc_mat", package = "pdlife", lib.loc = lib)
+    }
+
+    # The two objects reference different places.
+    expect_true(startsWith(inst$path, normalizePath(lib, winslash = "/")))
+    expect_false(startsWith(wc$path, normalizePath(lib, winslash = "/")))
+
+    files <- c(list.files(inst$path, full.names = TRUE), list.files(wc$path, full.names = TRUE))
+    before <- unname(tools::md5sum(files))
+
+    data_detach()
+    expect_equal(nrow(data_collections()), 0L)
+    expect_identical(unname(tools::md5sum(files)), before)
+    expect_equal(inst[, 3], c(5, 6))
+    expect_equal(wc[, 3], c(15, 16))
+
+    # Replacing or removing the installation is a separate event.
+    unlink(file.path(lib, "pdlife"), recursive = TRUE)
+    expect_error(suppressWarnings(inst[1, 1]))
+    expect_equal(wc[, 3], c(15, 16))
+    expect_true(all(file.exists(list.files(wc$path, full.names = TRUE))))
+  }
+})
+
 test_that("add_collections() names whether a refused id is attached or only registered", {
   local_clean_session()
   fx <- shared_fixtures()

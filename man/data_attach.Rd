@@ -73,8 +73,10 @@ since, which is an error asking for \code{replace = TRUE}. Registration argument
 The installed copy is resolved once, here, from \code{lib.loc} (default
 \code{\link[=.libPaths]{.libPaths()}}); later changes to \code{\link[=.libPaths]{.libPaths()}} cannot redirect a pending
 read. If the installed package is replaced in place before an object is
-opened, opening fails informatively and you re-attach with \code{replace = TRUE};
-objects already opened are unaffected.
+opened, opening fails informatively and you re-attach with \code{replace = TRUE}.
+Objects you already hold are not closed, but replacing or removing an
+installation is not covered by any guarantee for them: see the "Lifetime of
+opened objects" section of \code{\link[=data_detach]{data_detach()}}.
 }
 \section{Name conflicts}{
 

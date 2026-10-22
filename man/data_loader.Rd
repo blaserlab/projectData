@@ -68,9 +68,34 @@ metadata and file paths; it must not restore the dataset or read backing
 matrices.
 
 Loader ids must be namespaced (\code{"pkg::name"}); the \verb{projectData::} prefix is
-reserved for built-in loaders. Installed files are read-only: an adapter
-needing writable files must use \code{paths$work_dir}.
+reserved for built-in loaders.
 }
+\section{Adapter responsibilities for disk-backed objects}{
+
+projectData never copies data and never deletes backing files; what a
+returned object depends on is decided by \code{open}. An adapter must:
+\itemize{
+\item Resolve every path from \code{paths$source} or \code{paths$root}, the installed
+collection root. Do not store absolute paths in the installation or assume
+a fixed library location.
+\item Treat installed files as read-only. If the format needs writable storage,
+set \code{needs_work_dir = TRUE} and write only under \code{paths$work_dir}.
+\item Keep every file the returned object reads from available for as long as
+the object can be used. Do not delete or move backing files in \code{open} or
+in finalisers that run while the object is still reachable.
+\item Know, and state in its own documentation, whether the returned object
+references the installed files or a working copy. Only a working copy
+makes the object independent of the installation, and only if the adapter
+restores all required references (not just the main matrix) to it. It is
+still only as persistent as the working directory, which by default lives
+in the session temporary directory.
+}
+
+Consequently, an object referencing installed files is not guaranteed to
+survive replacement or removal of the installation, even though
+\code{\link[=data_detach]{data_detach()}} leaves those files alone.
+}
+
 \seealso{
 \code{\link[=data_loader_add]{data_loader_add()}}, \code{\link[=data_loader_adapter]{data_loader_adapter()}}
 }

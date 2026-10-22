@@ -63,6 +63,15 @@ Rules that make adapters safe to use:
 
 * Installed files are read-only. Need a writable file? Declare
   `needs_work_dir = TRUE` and use `paths$work_dir`, which is unique per open.
+* Resolve paths from the installation root given in `paths`; never hard-code a
+  library location.
+* Know whether the returned object references the installed files or a working
+  copy, and document it. An object referencing installed files may stop working
+  if the installation is replaced or removed. A working copy gives
+  independence only if every file reference the object needs was restored to the
+  copy, and only while the copy lasts (by default the session temporary
+  directory).
+* Keep backing files available for the lifetime of the returned object.
 * Use the format's native save/load API in `open`. Do not serialize live
   connections or external pointers and expect them to restore.
 * Set `storage = "disk-backed"` if the returned object reads from files lazily,
@@ -183,12 +192,20 @@ Both paths use the same resource records, so there is exactly one load per
 resource whichever access happens first. `data_get()` registers without
 rebinding the facade. `data_detach()` is the single cleanup operation: it removes
 bindings and forgets the registration with its cached references, whether or not
-the collection was attached. Backing files are never deleted by it.
+the collection was attached. Backing files are never deleted by it, so objects
+you hold can keep reading them after detachment. This says nothing about
+replacing or removing the installed package, which can break objects that
+reference installed files.
 
 ## Sketch: migrating the existing monocle3/BPCells (CDS) workflow
 
-This is a sketch, **not exercised** here: monocle3 and BPCells are not
-dependencies of projectData and were not used to produce it.
+This is a sketch, **not exercised** by this vignette: monocle3 and BPCells are
+not dependencies of projectData and were not used to produce it. The tests
+contain an optional, skipped-when-unavailable check
+(`tests/testthat/test-integration-cds.R`) that restores a small real CDS through
+a test-local loader of this shape; it is not a shipped adapter. It found that
+monocle3's `load_monocle_objects()` copies the BPCells matrix into a new
+directory under `tempdir()`, and that monocle3 must be attached while it runs.
 
 ```r
 # In a separate adapter package, e.g. blaseRtoolsAdapter (not part of projectData)

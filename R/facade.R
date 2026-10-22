@@ -128,8 +128,10 @@ data_masking <- function() {
 #' The installed copy is resolved once, here, from `lib.loc` (default
 #' [.libPaths()]); later changes to [.libPaths()] cannot redirect a pending
 #' read. If the installed package is replaced in place before an object is
-#' opened, opening fails informatively and you re-attach with `replace = TRUE`;
-#' objects already opened are unaffected.
+#' opened, opening fails informatively and you re-attach with `replace = TRUE`.
+#' Objects you already hold are not closed, but replacing or removing an
+#' installation is not covered by any guarantee for them: see the "Lifetime of
+#' opened objects" section of [data_detach()].
 #'
 #' @section Name conflicts:
 #' Name resolution is metadata-only. The bare name of an object that exists in
@@ -252,9 +254,28 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
 #' references to opened resources are dropped, so the next access registers and
 #' opens them afresh. When no attached collection remains, the environment is
 #' removed from the search path. Only the environment projectData created is
-#' touched. Objects you already hold, and the
-#' backing files they use, are unaffected; nothing is deleted or closed. Work
-#' directories created by loaders stay in the session temporary directory.
+#' touched.
+#'
+#' @section Lifetime of opened objects:
+#' Detaching and replacing an installed package are different events.
+#'
+#' * Detaching (and any registration cleanup) never deletes, moves or closes
+#'   backing files, and does not modify objects you hold. An object you kept in
+#'   a variable can therefore keep working after detachment, because the files it
+#'   reads from are still there. Work directories created for loaders stay in the
+#'   session temporary directory.
+#' * Detaching does **not** protect objects from the installation changing.
+#'   Fully materialised in-memory values generally stay usable. A disk-backed
+#'   object that references files inside an installed package depends on those
+#'   files remaining available and compatible; if the package is replaced or
+#'   removed it may stop working, or read different data.
+#' * An object that references an adapter-managed working copy is independent of
+#'   the installation only if the adapter restored every file reference it needs
+#'   to the working copy, and only for as long as that copy exists (by default,
+#'   the session temporary directory).
+#'
+#' Which case applies to an object is decided by its loader; see
+#' [data_loader()].
 #'
 #' @param collections Registered collection ids; `NULL` detaches everything.
 #' @return Invisibly, the detached ids.

@@ -43,8 +43,30 @@ descriptor_fields <- c("resource", "loader", "source", "objects", "options",
 #' matrices.
 #'
 #' Loader ids must be namespaced (`"pkg::name"`); the `projectData::` prefix is
-#' reserved for built-in loaders. Installed files are read-only: an adapter
-#' needing writable files must use `paths$work_dir`.
+#' reserved for built-in loaders.
+#'
+#' @section Adapter responsibilities for disk-backed objects:
+#' projectData never copies data and never deletes backing files; what a
+#' returned object depends on is decided by `open`. An adapter must:
+#'
+#' * Resolve every path from `paths$source` or `paths$root`, the installed
+#'   collection root. Do not store absolute paths in the installation or assume
+#'   a fixed library location.
+#' * Treat installed files as read-only. If the format needs writable storage,
+#'   set `needs_work_dir = TRUE` and write only under `paths$work_dir`.
+#' * Keep every file the returned object reads from available for as long as
+#'   the object can be used. Do not delete or move backing files in `open` or
+#'   in finalisers that run while the object is still reachable.
+#' * Know, and state in its own documentation, whether the returned object
+#'   references the installed files or a working copy. Only a working copy
+#'   makes the object independent of the installation, and only if the adapter
+#'   restores all required references (not just the main matrix) to it. It is
+#'   still only as persistent as the working directory, which by default lives
+#'   in the session temporary directory.
+#'
+#' Consequently, an object referencing installed files is not guaranteed to
+#' survive replacement or removal of the installation, even though
+#' [data_detach()] leaves those files alone.
 #'
 #' @param id Namespaced loader id.
 #' @param open Function `(descriptor, paths, context)` returning a named list.

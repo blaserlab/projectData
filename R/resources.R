@@ -90,7 +90,8 @@ check_installation_unchanged <- function(co) {
              " changed since collection '", co$id, "' was registered (registered: ",
              co$identity, "; now: ", now, "). Nothing was opened. Re-register with ",
              "data_attach(\"", co$package, "\", id = \"", co$id, "\", replace = TRUE). ",
-             "Objects already opened are unaffected.",
+             "Replacing an installation does not close objects you already hold, ",
+             "but ones that read from the replaced files may stop working.",
              class = "projectData_stale_installation")
   }
 }

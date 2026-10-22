@@ -20,7 +20,29 @@ This covers collections that are only registered (for example by
 references to opened resources are dropped, so the next access registers and
 opens them afresh. When no attached collection remains, the environment is
 removed from the search path. Only the environment projectData created is
-touched. Objects you already hold, and the
-backing files they use, are unaffected; nothing is deleted or closed. Work
-directories created by loaders stay in the session temporary directory.
+touched.
 }
+\section{Lifetime of opened objects}{
+
+Detaching and replacing an installed package are different events.
+\itemize{
+\item Detaching (and any registration cleanup) never deletes, moves or closes
+backing files, and does not modify objects you hold. An object you kept in
+a variable can therefore keep working after detachment, because the files it
+reads from are still there. Work directories created for loaders stay in the
+session temporary directory.
+\item Detaching does \strong{not} protect objects from the installation changing.
+Fully materialised in-memory values generally stay usable. A disk-backed
+object that references files inside an installed package depends on those
+files remaining available and compatible; if the package is replaced or
+removed it may stop working, or read different data.
+\item An object that references an adapter-managed working copy is independent of
+the installation only if the adapter restored every file reference it needs
+to the working copy, and only for as long as that copy exists (by default,
+the session temporary directory).
+}
+
+Which case applies to an object is decided by its loader; see
+\code{\link[=data_loader]{data_loader()}}.
+}
+

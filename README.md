@@ -34,6 +34,9 @@ packages (including from tarballs) is separate from attaching them.
 * Not a package manager, not an out-of-memory computation engine, and no
   guarantee of reproducibility: class compatibility, software versions,
   backing files and platform readers still matter.
+* Detaching never deletes backing files, so objects you hold can keep reading
+  them. Replacing or removing the installed package is a different event:
+  disk-backed objects that reference installed files may stop working.
 * `conflicted` and `library(include.only = )` handle export conflicts and
   selection; projectData adds collection inventory, deferred access beyond lazy
   data, format restoration and provenance.
