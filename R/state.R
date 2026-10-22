@@ -11,7 +11,7 @@ reset_state <- function() {
   .state$facade <- list(name = "projectData:data", pos = 2L,
                         on_mask = "warn", env = NULL)
   .state$loaders <- list()
-  .state$config <- list(messages = TRUE, on_open = NULL)
+  .state$config <- list(messages = TRUE, on_open = NULL, ignored_claims = "warn")
   .state$work_counter <- 0L
   register_builtin_loaders()
   invisible()
@@ -63,12 +63,17 @@ get_collection <- function(id, st = .state) {
 #'   `resource`, `package`, `loader`, `root`) immediately before a loader's
 #'   `open` function runs. Useful for logging and for counting reads in tests.
 #'   Use `NULL` to remove it.
+#' @param ignored_claims How to report adapter claims on standard data
+#'   resources that the built-in reader keeps (see the adapters vignette):
+#'   `"warn"` (default, a `projectData_ignored_claim` warning), `"message"`
+#'   (the same text as a message of that class) or `"silent"`. Ambiguous
+#'   adapter collisions are errors regardless of this setting.
 #' @return The current configuration, invisibly.
 #' @examples
 #' old <- data_config(messages = FALSE)
 #' data_config(messages = old$messages)
 #' @export
-data_config <- function(messages, on_open) {
+data_config <- function(messages, on_open, ignored_claims) {
   cfg <- .state$config
   if (!missing(messages)) {
     stopifnot(is.logical(messages), length(messages) == 1L, !is.na(messages))
@@ -77,6 +82,9 @@ data_config <- function(messages, on_open) {
   if (!missing(on_open)) {
     stopifnot(is.null(on_open) || is.function(on_open))
     cfg["on_open"] <- list(on_open)
+  }
+  if (!missing(ignored_claims)) {
+    cfg["ignored_claims"] <- list(match.arg(ignored_claims, c("warn", "message", "silent")))
   }
   .state$config <- cfg
   invisible(cfg)

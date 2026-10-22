@@ -4,7 +4,7 @@
 \alias{data_config}
 \title{Configure projectData session behavior}
 \usage{
-data_config(messages, on_open)
+data_config(messages, on_open, ignored_claims)
 }
 \arguments{
 \item{messages}{Logical (default \code{TRUE}). Emit a message the first time a
@@ -18,6 +18,12 @@ lasts for the session.}
 \code{resource}, \code{package}, \code{loader}, \code{root}) immediately before a loader's
 \code{open} function runs. Useful for logging and for counting reads in tests.
 Use \code{NULL} to remove it.}
+
+\item{ignored_claims}{How to report adapter claims on standard data
+resources that the built-in reader keeps (see the adapters vignette):
+\code{"warn"} (default, a \code{projectData_ignored_claim} warning), \code{"message"}
+(the same text as a message of that class) or \code{"silent"}. Ambiguous
+adapter collisions are errors regardless of this setting.}
 }
 \value{
 The current configuration, invisibly.

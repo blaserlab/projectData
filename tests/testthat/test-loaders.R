@@ -254,3 +254,171 @@ test_that("script datasets calling unqualified non-base functions fail clearly, 
   expect_identical(data_get("qualified"), letters[1:3])
   expect_equal(data_catalog()$state[data_catalog()$object %in% "qualified"], "ready")
 })
+
+# Discovery collisions and manifest resolution -------------------------------
+
+second_loader <- function() {
+  l <- tinydisk_loader()
+  l$id <- "tinydisk::second"
+  l
+}
+
+tm_file <- function(p) tinymat_write(diag(2), p)
+
+test_that("an adapter claim on a standard dataset is ignored; the built-in reader keeps it", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdstd", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/std.tinymat" = tm_file))
+  data_loader_add(tinydisk_loader())
+  expect_warning(data_attach("pdstd", lib.loc = lib), class = "projectData_ignored_claim")
+  cat <- data_catalog()
+  expect_equal(cat$object, "std_obj")
+  expect_equal(data_get("std_obj"), 1)
+})
+
+test_that("ignored adapter claims can be downgraded to a message or silenced", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdstd3", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/std.tinymat" = tm_file))
+  data_loader_add(tinydisk_loader())
+  expect_error(data_config(ignored_claims = "loud"))
+  data_config(ignored_claims = "message")
+  expect_message(data_attach("pdstd3", lib.loc = lib, id = "m"), class = "projectData_ignored_claim")
+  expect_equal(data_catalog()$object, "std_obj")
+  data_config(ignored_claims = "silent")
+  expect_no_condition(data_attach("pdstd3", lib.loc = lib, id = "s"))
+  expect_setequal(data_collections()$id, c("m", "s"))
+})
+
+test_that("a manifest can assign a standard dataset to a specialized reader", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdstd2", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/std.tinymat" = tm_file),
+                  manifest = c("ManifestVersion: 1", "", "Resource: std",
+                               "Loader: tinydisk::tinymat", "Source: extdata/std.tinymat",
+                               "Objects: std_mat"))
+  data_loader_add(tinydisk_loader())
+  expect_no_warning(data_attach("pdstd2", lib.loc = lib))
+  expect_equal(data_catalog()$object, "std_mat")
+  expect_s3_class(data_get("std_mat"), "tinymat")
+})
+
+test_that("a manifest resolves a collision between adapters on a nonstandard resource", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdadp", lazy = FALSE, datasets = list(),
+                  files = list("extdata/a.tinymat" = tm_file),
+                  manifest = c("ManifestVersion: 1", "", "Resource: a",
+                               "Loader: tinydisk::second", "Source: extdata/a.tinymat",
+                               "Objects: a"))
+  data_loader_add(tinydisk_loader())
+  data_loader_add(second_loader())
+  data_attach("pdadp", lib.loc = lib)
+  expect_equal(data_catalog()$object, "a")
+  expect_equal(projectData:::.state$collections[[1]]$resources$a$descriptor$loader,
+               "tinydisk::second")
+})
+
+test_that("the same adapter collision without a resolving manifest names the claimants", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdadp2", lazy = FALSE, datasets = list(),
+                  files = list("extdata/a.tinymat" = tm_file))
+  data_loader_add(tinydisk_loader())
+  data_loader_add(second_loader())
+  expect_error(data_attach("pdadp2", lib.loc = lib), "a \\(adapter:tinydisk::second\\)",
+               class = "projectData_ambiguous_discovery")
+  expect_error(data_attach("pdadp2", lib.loc = lib), "a \\(adapter:tinydisk::tinymat\\)")
+})
+
+test_that("a manifest for an unrelated resource does not suppress the collision", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdadp3", lazy = FALSE, datasets = list(),
+                  files = list("extdata/a.tinymat" = tm_file,
+                               "extdata/refobj.rds" = function(p) saveRDS(1, p)),
+                  manifest = c("ManifestVersion: 1", "", "Resource: refobj",
+                               "Loader: projectData::rds", "Source: extdata/refobj.rds",
+                               "Objects: ref_rds"))
+  data_loader_add(tinydisk_loader())
+  data_loader_add(second_loader())
+  expect_error(data_attach("pdadp3", lib.loc = lib), class = "projectData_ambiguous_discovery")
+})
+
+test_that("resolution does not depend on adapter registration order", {
+  lib <- fixture_library()
+  fixture_package(lib, "pdord", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/std.tinymat" = tm_file, "extdata/a.tinymat" = tm_file,
+                               "extdata/b.tinymat" = tm_file),
+                  manifest = c("ManifestVersion: 1", "", "Resource: a",
+                               "Loader: tinydisk::second", "Source: extdata/a.tinymat",
+                               "Objects: a"))
+  resolve <- function(loaders) {
+    local_clean_session()
+    for (l in loaders) data_loader_add(l)
+    msg <- tryCatch(suppressWarnings(data_attach("pdord", lib.loc = lib)),
+                    projectData_ambiguous_discovery = function(e) conditionMessage(e))
+    list(msg = if (is.character(msg)) msg, cat = if (!is.character(msg)) data_catalog()$object)
+  }
+  fwd <- resolve(list(tinydisk_loader(), second_loader()))
+  rev <- resolve(list(second_loader(), tinydisk_loader()))
+  expect_identical(fwd, rev)
+  # b is claimed by both adapters and nothing resolves it
+  expect_match(fwd$msg, "b \\(adapter")
+})
+
+test_that("duplicate or contradictory manifest entries fail clearly", {
+  local_clean_session()
+  lib <- fixture_library()
+  rec <- function(loader) c("Resource: a", paste("Loader:", loader),
+                            "Source: extdata/a.tinymat", "Objects: a")
+  for (m in list(c("ManifestVersion: 1", "", rec("tinydisk::tinymat"), "", rec("tinydisk::tinymat")),
+                 c("ManifestVersion: 1", "", rec("tinydisk::tinymat"), "", rec("tinydisk::second")))) {
+    nm <- paste0("pddup", length(list.files(lib)))
+    fixture_package(lib, nm, lazy = FALSE, datasets = list(),
+                    files = list("extdata/a.tinymat" = tm_file), manifest = m)
+    expect_error(data_attach(nm, lib.loc = lib), "duplicate Resource 'a'",
+                 class = "projectData_manifest_error")
+  }
+})
+
+test_that("an adapter still discovers a directory resource containing internal .rda files", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdinner", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/inner.tinymat" = function(p) {
+                    tinymat_write(diag(2), p)
+                    x <- 1
+                    save(x, file = file.path(p, "extra.rda"))
+                  }))
+  data_loader_add(tinydisk_loader())
+  expect_no_warning(data_attach("pdinner", lib.loc = lib))
+  expect_setequal(data_catalog()$object, c("std_obj", "inner"))
+})
+
+test_that("discovery and manifest resolution do not open resources", {
+  local_clean_session()
+  lib <- fixture_library()
+  opened <- 0L
+  spy <- function(id) {
+    l <- tinydisk_loader()
+    l$id <- id
+    l$open <- function(descriptor, paths, context) { opened <<- opened + 1L; list() }
+    l
+  }
+  fixture_package(lib, "pdspy", lazy = FALSE, datasets = list(std = list(std_obj = 1)),
+                  files = list("extdata/std.tinymat" = tm_file, "extdata/a.tinymat" = tm_file),
+                  manifest = c("ManifestVersion: 1", "", "Resource: a",
+                               "Loader: tinydisk::spy2", "Source: extdata/a.tinymat",
+                               "Objects: a"))
+  n <- local_open_counter()
+  data_loader_add(spy("tinydisk::spy1"))
+  data_loader_add(spy("tinydisk::spy2"))
+  suppressWarnings(data_attach("pdspy", lib.loc = lib))
+  data_catalog()
+  expect_equal(opened, 0L)
+  expect_length(n$log, 0)
+})

@@ -127,8 +127,9 @@ inventory_datasets <- function(root) {
 #' returning a [data_loader()]) that is loaded by namespace on first access if
 #' the loader is not yet registered.
 #'
-#' A manifest record replaces an automatically discovered candidate with the
-#' same `Resource`. Duplicate resources within a manifest are an error.
+#' A manifest record replaces every automatically discovered candidate with
+#' the same `Resource`. Declaring a resource twice in one manifest, whether or
+#' not the records agree, is an error.
 #'
 #' @param file Path to a manifest file.
 #' @param root Package root against which `Source` paths are checked. Defaults
@@ -155,7 +156,14 @@ read_manifest <- function(file, root) {
   rows <- seq_len(nrow(m))[-1]
   ids <- vapply(rows, function(i) get(i, "Resource"), "")
   if (anyNA(ids)) fail("every resource record needs a Resource field")
-  if (anyDuplicated(ids)) fail("duplicate Resource ", quote_names(ids[duplicated(ids)]))
+  if (anyDuplicated(ids)) {
+    dup <- unique(ids[duplicated(ids)])
+    loaders <- vapply(dup, function(r) {
+      paste(vapply(rows[ids == r], function(i) get(i, "Loader") %||% "NA", ""), collapse = " vs ")
+    }, "")
+    fail("duplicate Resource ", quote_names(dup), " (loaders: ", paste(loaders, collapse = "; "),
+         "); declare each resource once")
+  }
 
   lapply(rows, function(i) {
     split_csv <- function(x) if (is.na(x)) NULL else trimws(strsplit(x, ",", fixed = TRUE)[[1]])
@@ -252,13 +260,32 @@ check_descriptor <- function(d, root, fail = function(...) pd_abort(...)) {
 
 # Assembling a collection's resources ----------------------------------------
 
-# Precedence: manifest entries replace automatic or adapter candidates for the
-# same resource. Automatic vs adapter, or adapter vs adapter, collisions are
-# ambiguous and fail.
+report_ignored_claims <- function(resources, loaders) {
+  mode <- .state$config$ignored_claims %||% "warn"
+  if (identical(mode, "silent")) return(invisible())
+  txt <- paste0("Ignored adapter claim(s) on standard data resource(s); the built-in ",
+                "reader keeps them: ", paste0(resources, " (", loaders, ")", collapse = ", "),
+                ". Add a manifest entry to assign one to a specialized reader.")
+  if (identical(mode, "message")) {
+    message(pd_condition(paste0(txt, "\n"), "projectData_ignored_claim", "message"))
+  } else {
+    pd_warn(txt, class = "projectData_ignored_claim")
+  }
+  invisible()
+}
+
+# Precedence, applied to metadata only (no reader is invoked):
+# 1. A manifest record for a resource replaces every other candidate for it.
+# 2. Otherwise, resources in the standard data inventory belong to the built-in
+#    reader; adapter claims on them are ignored with a warning.
+# 3. Otherwise, several adapters claiming one resource is ambiguous and fails.
+# Distinct resources that expose the same object name are a separate check,
+# made last.
 assemble_descriptors <- function(root, context) {
-  auto <- lapply(inventory_datasets(root), normalize_descriptor,
-                 default_loader = "projectData::dataset", origin = "index")
-  found <- list()
+  standard <- lapply(inventory_datasets(root), normalize_descriptor,
+                     default_loader = "projectData::dataset", origin = "index")
+  claims <- list()
+  # Sorted ids keep the outcome independent of registration order.
   for (id in sort(names(.state$loaders))) {
     l <- .state$loaders[[id]]
     if (is.null(l$discover)) next
@@ -266,27 +293,42 @@ assemble_descriptors <- function(root, context) {
     if (is.null(ds)) next
     if (!is.list(ds)) pd_abort("Discovery by loader '", id, "' must return a list of descriptors.")
     for (d in ds) {
-      d <- normalize_descriptor(d, default_loader = id, origin = paste0("adapter:", id))
-      check_descriptor(d, root)
-      found[[length(found) + 1L]] <- d
+      claims[[length(claims) + 1L]] <-
+        normalize_descriptor(d, default_loader = id, origin = paste0("adapter:", id))
     }
   }
-  candidates <- c(auto, found)
-  ids <- vapply(candidates, function(d) d$resource, "")
-  dup <- unique(ids[duplicated(ids)])
+
+  mf <- file.path(root, manifest_path)
+  declared <- if (file.exists(mf)) read_manifest(mf, root) else list()
+  declared_ids <- vapply(declared, function(d) d$resource, "")
+
+  standard_ids <- vapply(standard, function(d) d$resource, "")
+  claim_ids <- vapply(claims, function(d) d$resource, "")
+  open_claims <- !claim_ids %in% declared_ids
+
+  ignored <- open_claims & claim_ids %in% standard_ids
+  if (any(ignored)) {
+    report_ignored_claims(claim_ids[ignored],
+                          sub("^adapter:", "", vapply(claims[ignored], function(d) d$origin, "")))
+  }
+  claims <- claims[open_claims & !ignored]
+  claim_ids <- claim_ids[open_claims & !ignored]
+
+  dup <- unique(claim_ids[duplicated(claim_ids)])
   if (length(dup)) {
-    origins <- vapply(candidates[ids %in% dup], function(d) paste0(d$resource, " (", d$origin, ")"), "")
+    origins <- vapply(claims[claim_ids %in% dup],
+                      function(d) paste0(d$resource, " (", d$origin, ")"), "")
     pd_abort("Ambiguous discovery: resource id(s) found more than once: ",
              paste(origins, collapse = ", "),
              ". Add a manifest entry to choose one explicitly.",
              class = "projectData_ambiguous_discovery")
   }
-  names(candidates) <- ids
 
-  mf <- file.path(root, manifest_path)
-  if (file.exists(mf)) {
-    for (d in read_manifest(mf, root)) candidates[[d$resource]] <- d
-  }
+  for (d in claims) check_descriptor(d, root)
+  candidates <- c(standard[!standard_ids %in% declared_ids], claims)
+  names(candidates) <- vapply(candidates, function(d) d$resource, "")
+  # A manifest entry takes the place of the candidate it replaces.
+  for (d in declared) candidates[[d$resource]] <- d
   out <- unname(candidates)
 
   seen <- list()

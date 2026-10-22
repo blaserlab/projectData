@@ -32,6 +32,7 @@ describes one resource with fields \code{Resource} (required), \code{Loader}
 returning a \code{\link[=data_loader]{data_loader()}}) that is loaded by namespace on first access if
 the loader is not yet registered.
 
-A manifest record replaces an automatically discovered candidate with the
-same \code{Resource}. Duplicate resources within a manifest are an error.
+A manifest record replaces every automatically discovered candidate with
+the same \code{Resource}. Declaring a resource twice in one manifest, whether or
+not the records agree, is an error.
 }

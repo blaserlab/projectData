@@ -100,9 +100,30 @@ only objects that need it fail, with an actionable message. Use
 `data_loader_adapter("tinydiskAdapter")` to register an adapter explicitly.
 Validate a manifest with `data_manifest_validate()`.
 
-A manifest entry replaces an automatically discovered candidate for the same
-resource. Ambiguous discovery (two loaders, or the data index and a loader,
-claiming one resource id) is an error unless a manifest entry decides.
+### Precedence
+
+Discovery uses metadata only and never opens a resource. For each resource
+id, in this order:
+
+1. A manifest entry replaces every other candidate for that resource, so
+   exactly one descriptor remains. A manifest can therefore hand a standard
+   dataset to a specialized loader, or choose between competing adapters.
+   Declaring a resource twice in one manifest is an error, even if the
+   records agree.
+2. Resources in the standard package data inventory (`.rda` and script
+   datasets in `data/`) belong to the built-in reader. An adapter claim on
+   one is ignored, with a `projectData_ignored_claim` warning naming the
+   claimant, unless a manifest entry says otherwise. Adapters that routinely
+   scan `extdata` can have this reported as a message or silenced with
+   `data_config(ignored_claims = "message")` or `"silent"`. This is by resource
+   identity, not file type: an adapter may still discover a directory
+   resource that contains `.rda` files internally.
+3. Otherwise, several adapters claiming one resource id is ambiguous and
+   fails with `projectData_ambiguous_discovery`, naming the claimants. The
+   outcome does not depend on the order in which loaders were registered.
+
+Distinct resources that expose the same object name are a separate error
+(`projectData_duplicate_object`); a manifest does not merge them.
 
 ## Sketch: migrating the existing monocle3/BPCells (CDS) workflow
 
