@@ -42,6 +42,12 @@ test_that("real CDS with BPCells matrix: restored object reads from a working co
   skip_if_not_installed("BPCells")
   local_clean_session()
   local_restore_search()
+  # monocle3/BPCells create `monocle.bpcells.*.tmp` directories in the working
+  # directory, in this process and in the fixture-building subprocess. Run both
+  # in a throwaway directory. The tempdir is registered first so it is removed
+  # after the working directory is restored.
+  work <- withr::local_tempdir("cds-work-")
+  withr::local_dir(work)
 
   m <- matrix(as.double(rpois(60, 3)), 10, 6,
               dimnames = list(paste0("g", 1:10), paste0("c", 1:6)))

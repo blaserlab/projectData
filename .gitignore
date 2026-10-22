@@ -15,3 +15,4 @@ inst/data-raw/regenerated_git_commands.R
 .quarto
 /doc/
 /Meta/
+monocle.bpcells.*.tmp/
