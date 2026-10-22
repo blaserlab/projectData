@@ -62,8 +62,13 @@ get_collection <- function(id, st = .state) {
 #'   lasts for the session.
 #' @param on_open Optional function called with a list (`collection`,
 #'   `resource`, `package`, `loader`, `root`) immediately before a loader's
-#'   `open` function runs. Useful for logging and for counting reads in tests.
-#'   Use `NULL` to remove it.
+#'   `open` function runs, once per uncached opening attempt. Useful for logging
+#'   and for counting reads in tests. The resource is already marked as opening,
+#'   so the callback may use other resources but any access that reaches the
+#'   resource being opened (directly, through an alias or through a sibling
+#'   object) is a reentrancy error. An uncaught error in the callback is an
+#'   opening failure: the reader is not run, the resource is marked `failed`
+#'   and `data_retry()` tries again. Use `NULL` to remove it.
 #' @param ignored_claims How to report adapter claims on standard data
 #'   resources that the built-in reader keeps (see the adapters vignette):
 #'   `"warn"` (default, a `projectData_ignored_claim` warning), `"message"`

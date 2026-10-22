@@ -151,29 +151,31 @@ open_resource <- function(co, rec) {
   check_installation_unchanged(co)
   validate_before_open(co, rec, loader)
 
-  cfg <- .state$config
-  if (isTRUE(cfg$messages)) {
-    objs <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
-    message("projectData: opening resource '", rec$resource, "' of collection '",
-            co$id, "' (", co$package, " ", co$version, ")",
-            if (length(objs)) paste0(" with object(s) ", paste(objs, collapse = ", ")) else "",
-            source_size_text(co, rec), ". Loader ", rec$loader,
-            "; local installed files, nothing is downloaded",
-            if (loader$storage == "disk-backed") "; disk-backed data are opened, not necessarily loaded into memory" else "",
-            ".")
-  }
-  if (is.function(cfg$on_open)) {
-    cfg$on_open(list(collection = co$id, resource = rec$resource,
-                     package = co$package, loader = rec$loader, root = co$root))
-  }
-
+  # The guard is set before any user-visible callback so that on_open can
+  # neither reenter this resource nor escape the failure handling below.
   rec$state <- "opening"
   ok <- FALSE
   on.exit(if (!ok && rec$state == "opening") {
     rec$state <- "failed"
     rec$error <- rec$error %||% "opening was interrupted."
   })
+  cfg <- .state$config
   tryCatch({
+    if (isTRUE(cfg$messages)) {
+      objs <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
+      message("projectData: opening resource '", rec$resource, "' of collection '",
+              co$id, "' (", co$package, " ", co$version, ")",
+              if (length(objs)) paste0(" with object(s) ", paste(objs, collapse = ", ")) else "",
+              source_size_text(co, rec), ". Loader ", rec$loader,
+              "; local installed files, nothing is downloaded",
+              if (loader$storage == "disk-backed") "; disk-backed data are opened, not necessarily loaded into memory" else "",
+              ".")
+    }
+    if (is.function(cfg$on_open)) {
+      cfg$on_open(list(collection = co$id, resource = rec$resource,
+                       package = co$package, loader = rec$loader, root = co$root))
+    }
+
     d <- rec$descriptor
     paths <- list(
       root = co$root,

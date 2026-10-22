@@ -147,3 +147,97 @@ test_that("the first-access message names objects and size, and can be turned of
   data_config(messages = FALSE)
   expect_no_message(data_get("ref_rds"))
 })
+
+test_that("on_open runs under the opening guard: self access is a reentrancy error", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  reads <- 0
+  data_loader_add(data_loader("test::flaky", open = function(descriptor, paths, context) {
+    reads <<- reads + 1
+    list(flaky_obj = "ok")
+  }))
+  data_loader_add(data_loader("test::reenter", open = function(descriptor, paths, context) {
+    list(reenter_obj = "ok")
+  }))
+  data_attach("pdmisc", lib.loc = fx$lib)
+  callbacks <- 0
+  data_config(on_open = function(info) {
+    callbacks <<- callbacks + 1
+    data_get("flaky_obj")
+  })
+  expect_error(data_get("flaky_obj"), "already being opened", class = "projectData_opening_failed")
+  expect_equal(c(callbacks, reads), c(1, 0))
+  expect_equal(data_catalog()$state[data_catalog()$resource == "flaky"], "failed")
+
+  # Failure is recorded through the usual mechanism and retry is explicit.
+  expect_error(data_get("flaky_obj"), "data_retry", class = "projectData_opening_failed")
+  expect_equal(callbacks, 1)
+  data_config(on_open = NULL)
+  data_retry("pdmisc", "flaky")
+  expect_identical(data_get("flaky_obj"), "ok")
+  expect_equal(reads, 1)
+})
+
+test_that("on_open reaching the same resource via an alias or sibling hits the same guard", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  data_attach("pdref", lib.loc = fx$lib, id = "ref", suffix = ".ref")
+  callbacks <- character()
+  data_config(on_open = function(info) {
+    callbacks <<- c(callbacks, info$resource)
+    if (info$resource == "multi") data_get(getOption("pdtest.target"))
+  })
+  for (target in c("m2", "m1.ref")) {
+    withr::local_options(pdtest.target = target)
+    callbacks <- character()
+    expect_error(data_get("m1"), "already being opened", class = "projectData_opening_failed")
+    expect_equal(callbacks, "multi")
+    data_config(on_open = NULL)
+    data_retry("ref", "multi")
+    data_config(on_open = function(info) {
+      callbacks <<- c(callbacks, info$resource)
+      if (info$resource == "multi") data_get(getOption("pdtest.target"))
+    })
+  }
+  data_config(on_open = NULL)
+  data_retry("ref", "multi")
+  expect_identical(data_get("m2"), "m2")
+})
+
+test_that("an on_open error is an opening failure and retry works once corrected", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  reads <- 0
+  data_loader_add(data_loader("test::flaky", open = function(descriptor, paths, context) {
+    reads <<- reads + 1
+    list(flaky_obj = "ok")
+  }))
+  data_loader_add(data_loader("test::reenter", open = function(descriptor, paths, context) list(reenter_obj = 1)))
+  data_attach("pdmisc", lib.loc = fx$lib)
+  data_config(on_open = function(info) stop("audit log unavailable"))
+  expect_error(data_get("flaky_obj"), "audit log unavailable", class = "projectData_opening_failed")
+  expect_equal(reads, 0)
+  expect_equal(data_catalog()$state[data_catalog()$resource == "flaky"], "failed")
+  counter <- local_open_counter()
+  data_retry("pdmisc", "flaky")
+  expect_identical(data_get("flaky_obj"), "ok")
+  expect_equal(c(reads, length(counter$log)), c(1, 1))
+})
+
+test_that("on_open may open an independent resource; cached access reruns nothing", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  data_attach("pdref", lib.loc = fx$lib, id = "ref")
+  log <- character()
+  data_config(on_open = function(info) {
+    log <<- c(log, info$resource)
+    if (info$resource == "multi") data_get("only_ref")
+  })
+  expect_identical(data_get("m1"), "m1")
+  expect_equal(log, c("multi", "only"))
+  expect_identical(data_get("m2"), "m2")
+  expect_identical(data_get("m1"), "m1")
+  expect_identical(data_get("only_ref"), 3)
+  expect_equal(log, c("multi", "only"))
+  expect_equal(unique(data_catalog()$state[data_catalog()$resource %in% c("multi", "only")]), "ready")
+})

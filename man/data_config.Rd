@@ -16,8 +16,13 @@ lasts for the session.}
 
 \item{on_open}{Optional function called with a list (\code{collection},
 \code{resource}, \code{package}, \code{loader}, \code{root}) immediately before a loader's
-\code{open} function runs. Useful for logging and for counting reads in tests.
-Use \code{NULL} to remove it.}
+\code{open} function runs, once per uncached opening attempt. Useful for logging
+and for counting reads in tests. The resource is already marked as opening,
+so the callback may use other resources but any access that reaches the
+resource being opened (directly, through an alias or through a sibling
+object) is a reentrancy error. An uncaught error in the callback is an
+opening failure: the reader is not run, the resource is marked \code{failed}
+and \code{data_retry()} tries again. Use \code{NULL} to remove it.}
 
 \item{ignored_claims}{How to report adapter claims on standard data
 resources that the built-in reader keeps (see the adapters vignette):
