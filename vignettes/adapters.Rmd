@@ -37,7 +37,9 @@ namespaced (`"pkg::name"`); `projectData::` is reserved.
 `context` is built by one helper for `validate` and `open`, so shared fields
 are identical: `collection`, `package`, `version`, `library`, `root` and
 `resource`. (During discovery `resource` is `NA`; in a standalone
-`data_manifest_validate()` `collection` is `NA`.) The only opening-only
+`data_manifest_validate()` `collection` is `NA`; while authoring against a
+source tree or bare directory some fields are `NA`, see "Roots and layouts"
+below.) The only opening-only
 information is `paths` (resolved `source`, `work_dir`).
 
 `validate` runs when a collection is registered, if its loader is already
@@ -140,18 +142,63 @@ Validate a manifest with `data_manifest_validate()`.
 
 Writing DCF by hand is error-prone, so projectData can draft and write one.
 `data_manifest_draft()` asks the **already registered** adapters what they would
-claim under a root (`inst/` in a source tree, or an installed package
-directory). It uses discovery only: nothing is opened and nothing is written.
-`data_manifest_write()` validates the descriptors, writes them, and reads the
-text back to check that it reproduces them exactly.
+claim under a root. It uses discovery only: nothing is opened and nothing is
+written. `data_manifest_write()` validates the descriptors, writes them, and
+reads the text back to check that it reproduces them exactly.
 
-```{r authoring}
-inst <- tempfile("inst-")
-tinymat_write(matrix(as.double(1:6), 2, 3), file.path(inst, "extdata", "scores.tinymat"))
+#### Roots and layouts
 
-drafts <- data_manifest_draft(inst)
-drafts[[1]][c("resource", "loader", "source", "objects")]
+`Source` paths in a manifest, and the paths your `discover()` and `validate()`
+callbacks work with, are relative to the **installed** package root, where
+`data/` and the contents of `inst/` sit side by side: `data/example.rda`,
+`extdata/counts.tinymat`. A source tree is laid out differently
+(`inst/extdata/...`), so authoring accepts three kinds of `root`:
+
+* a **package source tree**, a directory with a `DESCRIPTION`. This is the
+  recommended entry point. projectData builds a temporary view with the
+  installed shape, passes it to your callbacks, and removes it afterwards;
+  your `data/` and `inst/` are never modified, the package is not installed,
+  and no dataset is loaded or script run. Standard datasets are recognized by
+  file name, so their object names stay unknown.
+* an **installed package** directory, used as is;
+* a **standalone resource directory**, used as is. This is the earlier
+  convention of passing `inst/`; it still works for `extdata/` resources but
+  cannot see `data/`.
+
+The `context` your callbacks receive says which one it is:
+
+| root | `package`, `version` | `library` | `root` |
+|---|---|---|---|
+| installed package | installed metadata | the library holding it | the package directory |
+| package source tree | from `DESCRIPTION` | `NA` (not installed) | temporary installed-shaped view |
+| standalone directory | `NA` (never guessed from the name) | `NA` | the directory |
+
+`collection` is `NA` while authoring. A callback that stores the `root` it was
+given during authoring must not rely on it afterwards, because the view of a
+source tree is temporary.
+
+#### A complete source-package example
+
+```{r authoring-source}
+pkg <- file.path(tempfile("src-"), "my.datapkg")
+dir.create(file.path(pkg, "data"), recursive = TRUE)
+writeLines(c("Package: my.datapkg", "Version: 0.1.0", "Title: Example",
+             "Description: Example.", "License: GPL-3"),
+           file.path(pkg, "DESCRIPTION"))
+example_obj <- 1:3
+save(example_obj, file = file.path(pkg, "data", "example.rda"))
+tinymat_write(matrix(as.double(1:6), 2, 3),
+              file.path(pkg, "inst", "extdata", "counts.tinymat"))
+
+drafts <- data_manifest_draft(pkg)
+vapply(drafts, function(d) d$source, "")
 ```
+
+The `.rda` dataset is a standard dataset and needs no manifest entry; the
+tinymat is found by the adapter under `extdata/`. Edit the descriptors as
+ordinary lists, then write to the conventional location. For
+`<source>/inst/projectData/manifest.dcf` the default `root` is the package
+source, so both `data/` and `extdata/` paths resolve:
 
 A draft does not know which package supplies the loader, so say so if projectData
 should load the adapter on first access. Edit the descriptors as ordinary lists,
@@ -159,12 +206,12 @@ then write:
 
 ```{r authoring-write}
 drafts <- lapply(drafts, function(d) {
-  d$title <- "Scores"
+  d$title <- "Counts"
   d$options <- list(work_copy = "true")
   d$adapter <- list(package = "tinydiskAdapter")
   d
 })
-manifest <- file.path(inst, "projectData", "manifest.dcf")
+manifest <- file.path(pkg, "inst", "projectData", "manifest.dcf")
 data_manifest_write(drafts, manifest)
 writeLines(readLines(manifest))
 ```
@@ -179,17 +226,18 @@ change anything silently, for example a per-object title that differs between
 objects, an option value containing `;`, or a `Source` that leaves the root:
 
 ```{r authoring-errors, error = TRUE}
-data_manifest_write(list(resource = "scores", loader = "tinydisk::tinymat",
-                         source = "../elsewhere", objects = "scores"),
-                    file.path(inst, "projectData", "other.dcf"))
+data_manifest_write(list(resource = "counts", loader = "tinydisk::tinymat",
+                         source = "../elsewhere", objects = "counts"),
+                    file.path(pkg, "inst", "projectData", "other.dcf"))
 ```
 
 The writer also refuses to overwrite a file unless `overwrite = TRUE`, and to
 write inside an installed package. If several adapters claim one resource, or
 an adapter claims a standard `data/` dataset, `data_manifest_draft()` leaves it
 out and warns (the `conflicts` attribute lists them); name the winning loader
-with `loaders =` to include it. Put the file at `inst/projectData/manifest.dcf`
-in the package source.
+with `loaders =` to include it, which writes, for example,
+`Source: data/example.rda` with the specialized loader. Written paths are
+always installed-relative: never absolute and never prefixed with `inst/`.
 
 ### Precedence
 

@@ -132,18 +132,26 @@ inventory_datasets <- function(root) {
 #' not the records agree, is an error.
 #'
 #' @param file Path to a manifest file.
-#' @param root Package root against which `Source` paths are checked. Defaults
-#'   to two directories above `file`.
+#' @param root Root against which `Source` paths are checked: an installed
+#'   package, a package source tree, or a standalone resource directory (see
+#'   the "Roots and layouts" section of [data_manifest_draft()]). Defaults to
+#'   two directories above `file`, except that for
+#'   `<package source>/inst/projectData/manifest.dcf` it is the package source.
+#' @param layout One of `"auto"` (default), `"installed"`, `"source"` or
+#'   `"standalone"`; how `root` is interpreted.
 #' @return A list of validated descriptors, invisibly.
 #' @seealso [data_manifest_draft()] and [data_manifest_write()] to produce a
 #'   manifest.
 #' @export
-data_manifest_validate <- function(file, root = dirname(dirname(file))) {
-  invisible(read_manifest(file, root, root_context(root)))
+data_manifest_validate <- function(file, root = default_manifest_root(file), layout = "auto") {
+  if (!is_scalar_string(root) || !dir.exists(root)) pd_abort("`root` must be an existing directory.")
+  view <- authoring_view(root, layout)
+  on.exit(view$close(), add = TRUE)
+  invisible(read_manifest(file, view$root, view$context, allowed = view$allowed))
 }
 
 # `check = FALSE` only parses; used to verify what the writer produced.
-read_manifest <- function(file, root, context, check = TRUE) {
+read_manifest <- function(file, root, context, check = TRUE, allowed = NULL) {
   fail <- function(...) pd_abort("Invalid manifest ", basename(dirname(file)), "/",
                                  basename(file), ": ", ..., class = "projectData_manifest_error")
   m <- tryCatch(read.dcf(file), error = function(e) fail("not readable as DCF (", conditionMessage(e), ")"))
@@ -191,7 +199,7 @@ read_manifest <- function(file, root, context, check = TRUE) {
               recorded_class = get(i, "RecordedClass"), adapter = adapter,
               origin = "manifest")
     d <- normalize_descriptor(d, default_loader = NULL)
-    if (check) check_descriptor(d, root, context, fail = fail)
+    if (check) check_descriptor(d, root, context, fail = fail, allowed = allowed)
     d
   })
 }
@@ -225,7 +233,7 @@ normalize_descriptor <- function(d, default_loader, origin = d$origin) {
        adapter = d$adapter, origin = origin %||% "unknown")
 }
 
-check_descriptor <- function(d, root, context, fail = function(...) pd_abort(...)) {
+check_descriptor <- function(d, root, context, fail = function(...) pd_abort(...), allowed = NULL) {
   where <- paste0("resource ", deparse(d$resource), ": ")
   if (!is_scalar_string(d$resource)) fail("descriptor needs a non-empty `resource` id")
   if (!is_scalar_string(d$loader) || !grepl(loader_id_pattern, d$loader)) {
@@ -235,7 +243,7 @@ check_descriptor <- function(d, root, context, fail = function(...) pd_abort(...
     if (!is_safe_relative_path(d$source)) {
       fail(where, "Source must be a relative path without '..' components or absolute/backslash forms; got ", deparse(d$source))
     }
-    if (is.na(resolve_inside_root(root, d$source))) {
+    if (is.na(resolve_inside_root(root, d$source, allowed))) {
       fail(where, "Source '", d$source, "' does not exist inside the package root")
     }
   }

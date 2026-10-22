@@ -1,12 +1,3 @@
-# A source-tree `inst/` with two tinymat resources.
-local_inst_tree <- function(env = parent.frame()) {
-  inst <- withr::local_tempdir(.local_envir = env)
-  for (nm in c("alpha", "bmat")) {
-    tinymat_write(matrix(as.double(1:6), 2, 3), file.path(inst, "extdata", paste0(nm, ".tinymat")))
-  }
-  inst
-}
-
 counting_tinydisk <- function(id = "tinydisk::tinymat") {
   counts <- new.env()
   counts$discover <- 0L

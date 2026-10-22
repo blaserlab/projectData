@@ -4,13 +4,23 @@
 \alias{data_manifest_validate}
 \title{Validate a projectData manifest}
 \usage{
-data_manifest_validate(file, root = dirname(dirname(file)))
+data_manifest_validate(
+  file,
+  root = default_manifest_root(file),
+  layout = "auto"
+)
 }
 \arguments{
 \item{file}{Path to a manifest file.}
 
-\item{root}{Package root against which \code{Source} paths are checked. Defaults
-to two directories above \code{file}.}
+\item{root}{Root against which \code{Source} paths are checked: an installed
+package, a package source tree, or a standalone resource directory (see
+the "Roots and layouts" section of \code{\link[=data_manifest_draft]{data_manifest_draft()}}). Defaults to
+two directories above \code{file}, except that for
+\verb{<package source>/inst/projectData/manifest.dcf} it is the package source.}
+
+\item{layout}{One of \code{"auto"} (default), \code{"installed"}, \code{"source"} or
+\code{"standalone"}; how \code{root} is interpreted.}
 }
 \value{
 A list of validated descriptors, invisibly.

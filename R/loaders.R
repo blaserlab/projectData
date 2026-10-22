@@ -33,6 +33,14 @@ descriptor_fields <- c("resource", "loader", "source", "objects", "options",
 #' (the installation root, the same path passed to `discover` and `validate`)
 #' and `resource` (the resource id). During discovery `resource` is `NA`.
 #' During a standalone [data_manifest_validate()] call `collection` is `NA`.
+#' When authoring ([data_manifest_draft()], [data_manifest_write()],
+#' [data_manifest_validate()]) `root` is always laid out like an installed
+#' package, so paths relative to it work for `data/` and `extdata/` alike. For
+#' a package source tree, `package` and `version` come from its `DESCRIPTION`,
+#' `library` is `NA` (it is not installed) and `root` is a temporary view that
+#' exists only during the call; for a bare resource directory `package`,
+#' `version` and `library` are `NA` rather than guessed from the directory
+#' name. See "Roots and layouts" in [data_manifest_draft()].
 #' The only information available solely at opening is the `paths` argument of
 #' `open` (resolved `source` and `work_dir`).
 #'
@@ -155,13 +163,6 @@ loader_context <- function(collection, package, version, library, root,
                            resource = NA_character_) {
   list(collection = collection, package = package, version = version,
        library = library, root = root, resource = resource)
-}
-
-# Context for a standalone root (no collection is involved).
-root_context <- function(root) {
-  meta <- file.path(root, "Meta", "package.rds")
-  version <- if (file.exists(meta)) installed_description(root)[["Version"]] else NA_character_
-  loader_context(NA_character_, basename(root), version, dirname(root), root)
 }
 
 # Returns NULL when the descriptor is acceptable, otherwise a message. Only

@@ -4,17 +4,23 @@
 \alias{data_manifest_draft}
 \title{Draft manifest entries from registered adapters}
 \usage{
-data_manifest_draft(root, loaders = NULL)
+data_manifest_draft(root, loaders = NULL, layout = "auto")
 }
 \arguments{
-\item{root}{Collection root to inspect: the installed package directory, or
-\verb{inst/} in a source tree (where \code{Source} paths such as \code{extdata/x} resolve).}
+\item{root}{Collection root to inspect: a package source tree (recommended
+for authoring), an installed package directory, or a standalone resource
+directory. See "Roots and layouts".}
 
 \item{loaders}{Optional character vector of registered loader ids to use.
 Defaults to every registered loader that can discover.}
+
+\item{layout}{One of \code{"auto"} (default), \code{"installed"}, \code{"source"} or
+\code{"standalone"}; how \code{root} is interpreted.}
 }
 \value{
-A list of descriptors, with a \code{conflicts} attribute.
+A list of descriptors, with a \code{conflicts} attribute. \code{Source} paths
+are always relative to the installed package root, never absolute and
+never prefixed with \verb{inst/}.
 }
 \description{
 Runs the \code{discover} step of registered loaders against a collection root and
@@ -47,6 +53,43 @@ projectData load an adapter on first access, set \code{AdapterPackage} (and
 optionally \code{AdapterExport}) yourself, e.g.
 \code{d$adapter <- list(package = "myAdapter")}.
 }
+\section{Roots and layouts}{
+
+\code{Source} paths in a manifest, and the paths adapter \code{discover()} and
+\code{validate()} callbacks work with, are relative to the \strong{installed} package
+root, where \verb{data/} and the contents of \verb{inst/} sit side by side
+(\code{data/example.rda}, \code{extdata/counts.tinymat}). \code{root} can be:
+\itemize{
+\item a \strong{package source tree} (a directory with a \code{DESCRIPTION}, e.g.
+\verb{my.datapkg/}), the recommended entry point when authoring. projectData
+builds a temporary view with the installed shape (links to \verb{data/} and to
+each top-level entry of \verb{inst/}; copies only if links cannot be made),
+hands that view's path to the callbacks as \code{root}, and removes it
+afterwards. Neither \verb{data/} nor \verb{inst/} is modified, nothing is
+installed, and no dataset is loaded or script run: standard datasets are
+recognized from their file names, so their object names stay unknown.
+Resolved files must stay inside the package's \verb{data/} and \verb{inst/}.
+\item an \strong{installed package} directory (has \code{Meta/package.rds}), used as is.
+\item a \strong{standalone resource directory} (neither of the above), used as is.
+This is the earlier convention of passing \verb{inst/} of a source tree; it
+still works for resources below \verb{inst/}, but cannot see \verb{data/}.
+}
+
+\code{layout} overrides detection (\code{"auto"} picks installed if \code{Meta/package.rds}
+exists, source if there is a \code{DESCRIPTION} with a \code{Package} field, else
+standalone). Callbacks receive a \code{context} as described in \code{\link[=data_loader]{data_loader()}}
+with these values:\tabular{llll}{
+    \tab \code{package}, \code{version} \tab \code{library} \tab \code{root} \cr
+   installed \tab installed metadata \tab containing library \tab package directory \cr
+   source \tab from \code{DESCRIPTION} \tab \code{NA} (not installed) \tab temporary view \cr
+   standalone \tab \code{NA} (not verified) \tab \code{NA} \tab the directory \cr
+}
+
+
+\code{collection} and \code{resource} are \code{NA} while drafting (\code{resource} is set for
+\code{validate()}). A directory name is never used as a package name.
+}
+
 \seealso{
 \code{\link[=data_manifest_write]{data_manifest_write()}}, \code{\link[=data_manifest_validate]{data_manifest_validate()}}
 }

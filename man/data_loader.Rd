@@ -58,6 +58,14 @@ shared fields are identical: \code{collection} (collection id), \code{package},
 (the installation root, the same path passed to \code{discover} and \code{validate})
 and \code{resource} (the resource id). During discovery \code{resource} is \code{NA}.
 During a standalone \code{\link[=data_manifest_validate]{data_manifest_validate()}} call \code{collection} is \code{NA}.
+When authoring (\code{\link[=data_manifest_draft]{data_manifest_draft()}}, \code{\link[=data_manifest_write]{data_manifest_write()}},
+\code{\link[=data_manifest_validate]{data_manifest_validate()}}) \code{root} is always laid out like an installed
+package, so paths relative to it work for \verb{data/} and \verb{extdata/} alike. For
+a package source tree, \code{package} and \code{version} come from its \code{DESCRIPTION},
+\code{library} is \code{NA} (it is not installed) and \code{root} is a temporary view that
+exists only during the call; for a bare resource directory \code{package},
+\code{version} and \code{library} are \code{NA} rather than guessed from the directory
+name. See "Roots and layouts" in \code{\link[=data_manifest_draft]{data_manifest_draft()}}.
 The only information available solely at opening is the \code{paths} argument of
 \code{open} (resolved \code{source} and \code{work_dir}).
 

@@ -30,18 +30,59 @@ manifest_default_export <- "projectData_loaders"
 #' optionally `AdapterExport`) yourself, e.g.
 #' `d$adapter <- list(package = "myAdapter")`.
 #'
-#' @param root Collection root to inspect: the installed package directory, or
-#'   `inst/` in a source tree (where `Source` paths such as `extdata/x` resolve).
+#' @section Roots and layouts:
+#' `Source` paths in a manifest, and the paths adapter `discover()` and
+#' `validate()` callbacks work with, are relative to the **installed** package
+#' root, where `data/` and the contents of `inst/` sit side by side
+#' (`data/example.rda`, `extdata/counts.tinymat`). `root` can be:
+#'
+#' * a **package source tree** (a directory with a `DESCRIPTION`, e.g.
+#'   `my.datapkg/`), the recommended entry point when authoring. projectData
+#'   builds a temporary view with the installed shape (links to `data/` and to
+#'   each top-level entry of `inst/`; copies only if links cannot be made),
+#'   hands that view's path to the callbacks as `root`, and removes it
+#'   afterwards. Neither `data/` nor `inst/` is modified, nothing is
+#'   installed, and no dataset is loaded or script run: standard datasets are
+#'   recognized from their file names, so their object names stay unknown.
+#'   Resolved files must stay inside the package's `data/` and `inst/`.
+#' * an **installed package** directory (has `Meta/package.rds`), used as is.
+#' * a **standalone resource directory** (neither of the above), used as is.
+#'   This is the earlier convention of passing `inst/` of a source tree; it
+#'   still works for resources below `inst/`, but cannot see `data/`.
+#'
+#' `layout` overrides detection (`"auto"` picks installed if `Meta/package.rds`
+#' exists, source if there is a `DESCRIPTION` with a `Package` field, else
+#' standalone). Callbacks receive a `context` as described in [data_loader()]
+#' with these values:
+#'
+#' |            | `package`, `version`        | `library`           | `root`           |
+#' |------------|-----------------------------|---------------------|------------------|
+#' | installed  | installed metadata          | containing library  | package directory |
+#' | source     | from `DESCRIPTION`          | `NA` (not installed)| temporary view   |
+#' | standalone | `NA` (not verified)         | `NA`                | the directory    |
+#'
+#' `collection` and `resource` are `NA` while drafting (`resource` is set for
+#' `validate()`). A directory name is never used as a package name.
+#'
+#' @param root Collection root to inspect: a package source tree (recommended
+#'   for authoring), an installed package directory, or a standalone resource
+#'   directory. See "Roots and layouts".
 #' @param loaders Optional character vector of registered loader ids to use.
 #'   Defaults to every registered loader that can discover.
-#' @return A list of descriptors, with a `conflicts` attribute.
+#' @param layout One of `"auto"` (default), `"installed"`, `"source"` or
+#'   `"standalone"`; how `root` is interpreted.
+#' @return A list of descriptors, with a `conflicts` attribute. `Source` paths
+#'   are always relative to the installed package root, never absolute and
+#'   never prefixed with `inst/`.
 #' @seealso [data_manifest_write()], [data_manifest_validate()]
 #' @export
-data_manifest_draft <- function(root, loaders = NULL) {
+data_manifest_draft <- function(root, loaders = NULL, layout = "auto") {
   if (!is_scalar_string(root) || !dir.exists(root)) {
     pd_abort("`root` must be an existing directory.")
   }
-  root <- normalizePath(root, winslash = "/", mustWork = TRUE)
+  view <- authoring_view(root, layout)
+  on.exit(view$close(), add = TRUE)
+  root <- view$root
   registry <- .state$loaders
   can_discover <- vapply(registry, function(l) !is.null(l$discover), logical(1))
   if (is.null(loaders)) {
@@ -67,7 +108,7 @@ data_manifest_draft <- function(root, loaders = NULL) {
              class = "projectData_no_loaders")
   }
 
-  context <- root_context(root)
+  context <- view$context
   claims <- list()
   for (id in ids) {
     ds <- registry[[id]]$discover(root, context)
@@ -103,7 +144,7 @@ data_manifest_draft <- function(root, loaders = NULL) {
 
   kept <- claims[keep]
   kept <- kept[order(claim_ids[keep])]
-  for (d in kept) check_descriptor(d, root, context)
+  for (d in kept) check_descriptor(d, root, context, allowed = view$allowed)
 
   if (nrow(conflicts)) {
     pd_warn("Left out of the draft; a manifest entry must decide: ",
@@ -154,17 +195,24 @@ data_manifest_draft <- function(root, loaders = NULL) {
 #'
 #' @param descriptors A list of descriptors (or one descriptor).
 #' @param file Where to write. There is no default.
-#' @param root Root against which `Source` paths are checked. Defaults to two
-#'   directories above `file`, as in [data_manifest_validate()]; for
-#'   `inst/projectData/manifest.dcf` that is `inst/`.
+#' @param root Root against which `Source` paths are checked: a package source
+#'   tree, an installed package or a standalone resource directory (see
+#'   "Roots and layouts" in [data_manifest_draft()]). Defaults to two
+#'   directories above `file`, as in [data_manifest_validate()], except that
+#'   for `<package source>/inst/projectData/manifest.dcf` it is the package
+#'   source, so both `data/` and `extdata/` sources resolve. Passing `inst/`
+#'   explicitly keeps the earlier standalone behavior. `Source` is always
+#'   written relative to the installed package root.
 #' @param overwrite Replace an existing file.
+#' @param layout One of `"auto"` (default), `"installed"`, `"source"` or
+#'   `"standalone"`; how `root` is interpreted.
 #' @return Invisibly, a data frame with one row per resource and a
 #'   `loader_validation` column (`"ran"`, or `"skipped: ..."` with the reason).
 #'   The file path is in the `file` attribute.
 #' @seealso [data_manifest_draft()], [data_manifest_validate()]
 #' @export
-data_manifest_write <- function(descriptors, file, root = dirname(dirname(file)),
-                                overwrite = FALSE) {
+data_manifest_write <- function(descriptors, file, root = default_manifest_root(file),
+                                overwrite = FALSE, layout = "auto") {
   if (!is_scalar_string(file)) pd_abort("`file` must be a single path.")
   if (!is_scalar_string(root) || !dir.exists(root)) pd_abort("`root` must be an existing directory.")
   if (!is.logical(overwrite) || length(overwrite) != 1L || is.na(overwrite)) {
@@ -201,15 +249,17 @@ data_manifest_write <- function(descriptors, file, root = dirname(dirname(file))
     seen <- c(seen, d$objects)
   }
 
-  root <- normalizePath(root, winslash = "/", mustWork = TRUE)
-  context <- root_context(root)
+  view <- authoring_view(root, layout)
+  on.exit(view$close(), add = TRUE)
+  root <- view$root
+  context <- view$context
   status <- vapply(descriptors, function(d) {
     l <- find_loader(d$loader)
     if (is.null(l)) "skipped: loader not registered"
     else if (is.null(l$validate)) "skipped: loader has no validate function"
     else "ran"
   }, "")
-  for (d in descriptors) check_descriptor(d, root, context)
+  for (d in descriptors) check_descriptor(d, root, context, allowed = view$allowed)
 
   lines <- c("ManifestVersion: 1", unlist(lapply(descriptors, function(d) c("", manifest_record(d)))))
 

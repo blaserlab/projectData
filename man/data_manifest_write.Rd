@@ -7,8 +7,9 @@
 data_manifest_write(
   descriptors,
   file,
-  root = dirname(dirname(file)),
-  overwrite = FALSE
+  root = default_manifest_root(file),
+  overwrite = FALSE,
+  layout = "auto"
 )
 }
 \arguments{
@@ -16,11 +17,19 @@ data_manifest_write(
 
 \item{file}{Where to write. There is no default.}
 
-\item{root}{Root against which \code{Source} paths are checked. Defaults to two
-directories above \code{file}, as in \code{\link[=data_manifest_validate]{data_manifest_validate()}}; for
-\code{inst/projectData/manifest.dcf} that is \verb{inst/}.}
+\item{root}{Root against which \code{Source} paths are checked: a package source
+tree, an installed package or a standalone resource directory (see
+"Roots and layouts" in \code{\link[=data_manifest_draft]{data_manifest_draft()}}). Defaults to two
+directories above \code{file}, as in \code{\link[=data_manifest_validate]{data_manifest_validate()}}, except that
+for \verb{<package source>/inst/projectData/manifest.dcf} it is the package
+source, so both \verb{data/} and \verb{extdata/} sources resolve. Passing \verb{inst/}
+explicitly keeps the earlier standalone behavior. \code{Source} is always
+written relative to the installed package root.}
 
 \item{overwrite}{Replace an existing file.}
+
+\item{layout}{One of \code{"auto"} (default), \code{"installed"}, \code{"source"} or
+\code{"standalone"}; how \code{root} is interpreted.}
 }
 \value{
 Invisibly, a data frame with one row per resource and a

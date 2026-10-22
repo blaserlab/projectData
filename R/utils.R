@@ -30,13 +30,14 @@ is_safe_relative_path <- function(path) {
   !any(parts == "..") && !any(parts == "")
 }
 
-# Guards against symlinks that leave the root.
-resolve_inside_root <- function(root, relative) {
+# Guards against symlinks that leave the root. `allowed` replaces the root as
+# the boundary for a staged source layout (see layout.R).
+resolve_inside_root <- function(root, relative, allowed = NULL) {
   full <- file.path(root, relative)
   if (!file.exists(full)) return(NA_character_)
   real <- normalizePath(full, winslash = "/", mustWork = TRUE)
-  root_real <- normalizePath(root, winslash = "/", mustWork = TRUE)
-  if (!startsWith(real, paste0(root_real, "/"))) return(NA_character_)
+  bounds <- allowed %||% normalizePath(root, winslash = "/", mustWork = TRUE)
+  if (!any(startsWith(real, paste0(sub("/$", "", bounds), "/")))) return(NA_character_)
   real
 }
 
