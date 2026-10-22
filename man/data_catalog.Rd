@@ -43,6 +43,16 @@ is whatever the creator declared; it is \strong{recorded, not observed}.
 \code{mapping} becomes \code{verified} for a ready resource whose observed objects
 include all recorded ones.
 
+\code{source} is the path of the resource's file relative to \code{root}, and it can be
+\code{NA}. That happens when the package index lists a dataset for which no file
+was found in \verb{data/} (for example, a file removed after installation), or
+when a manifest resource declares no \code{Source}. Such a resource is still
+listed, with its recorded \code{object} names and \code{state} \code{unopened}, because the
+catalog never opens anything to check. The problem surfaces only on opening:
+a missing file raises an error naming the resource. Lazy-loaded datasets
+all share \code{source} \code{data/Rdata.rdb}, which is a database and not one file
+per dataset.
+
 \code{data_info()} returns the catalog rows for a name. \code{data_help()} explicitly
 opens the help page of the \emph{original} topic in the source package
 (aliases lead to the same topic); it is separate from inspection.

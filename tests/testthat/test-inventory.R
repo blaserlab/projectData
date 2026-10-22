@@ -153,3 +153,48 @@ test_that("the datalist index file is ignored silently; other unsupported files 
   writeLines("x", file.path(root, "data", "notes.xyz"))
   expect_warning(data_query("pddl", lib.loc = lib), class = "projectData_unsupported_format")
 })
+
+test_that("an indexed dataset whose file is missing is cataloged with source NA", {
+  lib <- fixture_library()
+  fixture_package(lib, "pdgap", "0.1.0", lazy = FALSE, datasets = list(
+    present = list(present_obj = 1), ghost = list(ghost_obj = 2)))
+  unlink(file.path(lib, "pdgap", "data", "ghost.rda"))
+  local_clean_session()
+  n <- local_open_counter()
+
+  data_attach("pdgap", lib.loc = lib, id = "gap")
+  cat <- data_catalog()
+  expect_equal(cat$source[cat$resource == "present"], "data/present.rda")
+  ghost <- cat[cat$resource == "ghost", ]
+  expect_true(is.na(ghost$source))
+  expect_equal(ghost$object, "ghost_obj")
+  expect_equal(ghost$state, "unopened")
+  expect_length(n$log, 0)
+})
+
+test_that("a resource producing none of its recorded objects is failed and retryable", {
+  lib <- fixture_library()
+  fixture_package(lib, "pdgap", "0.1.0", lazy = FALSE, datasets = list(
+    present = list(present_obj = 1), ghost = list(ghost_obj = 2)))
+  ghost_file <- file.path(lib, "pdgap", "data", "ghost.rda")
+  backup <- tempfile(fileext = ".rda")
+  file.copy(ghost_file, backup)
+  unlink(ghost_file)
+  local_clean_session()
+  data_attach("pdgap", lib.loc = lib, id = "gap")
+
+  expect_error(suppressWarnings(data_get("ghost_obj")), "produced none",
+               class = "projectData_opening_failed")
+  cat <- data_catalog()
+  expect_equal(cat$state[cat$resource == "ghost"], "failed")
+  # failure is sticky and isolated from other resources
+  expect_error(suppressWarnings(data_get("ghost_obj")), "data_retry",
+               class = "projectData_opening_failed")
+  expect_identical(data_get("present_obj"), 1)
+
+  # restoring the file and retrying recovers the resource
+  file.copy(backup, ghost_file)
+  expect_equal(data_retry("gap", "ghost"), "ghost")
+  expect_identical(data_get("ghost_obj"), 2)
+  expect_equal(data_catalog()$state[data_catalog()$resource == "ghost"], "ready")
+})

@@ -8,3 +8,5 @@
 ^inst/data-raw$
 ^\.Rhistory$
 ^README\.Rmd$
+^doc$
+^Meta$

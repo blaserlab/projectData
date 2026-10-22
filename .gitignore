@@ -13,3 +13,5 @@ inst/data-raw/regenerated_git_commands.R
 *.pdf
 .RData
 .quarto
+/doc/
+/Meta/

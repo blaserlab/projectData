@@ -168,6 +168,15 @@ open_resource <- function(co, rec) {
                                               any(!nzchar(names(value))) || anyDuplicated(names(value))))) {
       pd_abort("Loader '", rec$loader, "' must return a uniquely named list of objects.")
     }
+    recorded <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
+    # A loader that returns without error but yields none of the recorded
+    # objects (e.g. utils::data() only warns on a missing dataset) did not open.
+    if (length(recorded) && !any(recorded %in% names(value))) {
+      pd_abort("Loader '", rec$loader, "' produced none of the recorded object(s) ",
+               quote_names(recorded), "; it produced ",
+               if (length(value)) quote_names(names(value)) else "nothing", ".",
+               class = "projectData_mapping_error")
+    }
     rec$value <- value
     rec$observed <- names(value)
     rec$error <- NULL

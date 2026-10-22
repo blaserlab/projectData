@@ -20,6 +20,16 @@
 #' `mapping` becomes `verified` for a ready resource whose observed objects
 #' include all recorded ones.
 #'
+#' `source` is the path of the resource's file relative to `root`, and it can be
+#' `NA`. That happens when the package index lists a dataset for which no file
+#' was found in `data/` (for example, a file removed after installation), or
+#' when a manifest resource declares no `Source`. Such a resource is still
+#' listed, with its recorded `object` names and `state` `unopened`, because the
+#' catalog never opens anything to check. The problem surfaces only on opening:
+#' a missing file raises an error naming the resource. Lazy-loaded datasets
+#' all share `source` `data/Rdata.rdb`, which is a database and not one file
+#' per dataset.
+#'
 #' `data_info()` returns the catalog rows for a name. `data_help()` explicitly
 #' opens the help page of the *original* topic in the source package
 #' (aliases lead to the same topic); it is separate from inspection.
