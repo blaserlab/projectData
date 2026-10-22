@@ -1,6 +1,6 @@
 Package: projectData
 Title: Deferred Access to Installed Data Collections
-Version: 0.0.0.9001
+Version: 0.0.0.9002
 Authors@R: 
     person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
 Description: Registers installed, documented data packages as named
