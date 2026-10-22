@@ -1,3 +1,10 @@
 ^projectData\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
+^AGENTS\.md$
+^projectData-development-prompt\.md$
+^dev$
+^library_catalogs$
+^inst/data-raw$
+^\.Rhistory$
+^README\.Rmd$

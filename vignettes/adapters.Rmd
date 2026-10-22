@@ -1,0 +1,139 @@
+---
+title: "Writing a projectData adapter"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Writing a projectData adapter}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+Some data cannot be restored by ordinary deserialization: disk-backed matrices,
+database handles, memory-mapped files. An *adapter* teaches projectData how to
+find and open such a resource. The core package has no dependency on any
+specialized format; adapters ship separately (for example in their own package
+or on GitHub) and are never installed automatically.
+
+## The loader contract (version 1)
+
+`data_loader()` bundles three functions. Only `open` may read data values.
+
+| Step | Signature | Must |
+|---|---|---|
+| discover | `function(root, context)` | list candidate descriptors from files under `root`; do not read data values |
+| validate | `function(descriptor, root, context)` | return `TRUE` or a message; check files exist; do not open data |
+| open | `function(descriptor, paths, context)` | return a **named list** of the objects produced |
+
+A descriptor is a list with `resource`, `loader`, `source` (relative path),
+`objects`, `options`, `title`, `help_topic`, `recorded_class`. `paths` has
+`root`, `source` (resolved absolute path) and `work_dir`. Loader ids are
+namespaced (`"pkg::name"`); `projectData::` is reserved.
+
+Rules that make adapters safe to use:
+
+* Installed files are read-only. Need a writable file? Declare
+  `needs_work_dir = TRUE` and use `paths$work_dir`, which is unique per open.
+* Use the format's native save/load API in `open`. Do not serialize live
+  connections or external pointers and expect them to restore.
+* Set `storage = "disk-backed"` if the returned object reads from files lazily,
+  so the catalog and first-access message do not suggest the data are in memory.
+* Do not assume every file under `extdata` is a public data object: discover
+  by an explicit format convention, or let the data package author list
+  resources in a manifest.
+
+## A complete tiny example
+
+The example backend `inst/examples/tinydisk.R` stores a numeric matrix in a
+binary file. An opened object holds only a path and reads values on `[`.
+
+```{r tinydisk}
+library(projectData)
+source(system.file("examples", "tinydisk.R", package = "projectData"))
+source(system.file("examples", "fixtures.R", package = "projectData"))
+
+lib <- fixture_library()
+fixture_package(lib, "diskData", "1.0.0", lazy = FALSE, datasets = list(),
+  files = list("extdata/counts.tinymat" = function(path) {
+    tinymat_write(matrix(as.double(1:12), 3, 4), path)
+  }))
+
+data_loader_add(tinydisk_loader())     # explicit registration; required for discovery
+data_register("diskData", lib.loc = lib)
+data_catalog()[, c("object", "loader", "storage", "state")]
+
+counts <- data_get("counts")
+dim(counts)
+counts[2, 3]
+data_catalog()[, c("object", "storage", "state")]
+```
+
+`ready` means the loader returned. For a `disk-backed` loader it does not mean
+the matrix is in memory.
+
+## Manifests and adapter packages
+
+Data package authors can describe resources that are not discoverable with an
+optional file `inst/projectData/manifest.dcf`. It holds data only: relative
+paths and loader references, never code.
+
+```
+ManifestVersion: 1
+
+Resource: counts
+Loader: tinydisk::tinymat
+Source: extdata/counts.tinymat
+Objects: counts
+Options: work_copy=true
+AdapterPackage: tinydiskAdapter
+AdapterExport: projectData_loaders
+```
+
+`AdapterPackage`/`AdapterExport` name an export of the adapter package that
+returns a `data_loader()` (or a list of them). If the loader is not registered
+when the object is first accessed, projectData loads that namespace (it does
+not attach it) and registers the loader. If the package is not installed,
+only objects that need it fail, with an actionable message. Use
+`data_loader_adapter("tinydiskAdapter")` to register an adapter explicitly.
+Validate a manifest with `data_manifest_validate()`.
+
+A manifest entry replaces an automatically discovered candidate for the same
+resource. Ambiguous discovery (two loaders, or the data index and a loader,
+claiming one resource id) is an error unless a manifest entry decides.
+
+## Sketch: migrating the existing monocle3/BPCells (CDS) workflow
+
+This is a sketch, **not exercised** here: monocle3 and BPCells are not
+dependencies of projectData and were not used to produce it.
+
+```r
+# In a separate adapter package, e.g. blaseRtoolsAdapter (not part of projectData)
+cds_loader <- function() {
+  projectData::data_loader(
+    "blaseRtools::cds",
+    storage = "disk-backed",
+    needs_work_dir = FALSE,
+    discover = function(root, context) {
+      dirs <- list.files(file.path(root, "extdata"), pattern = "^bpcells_matrix_dir$",
+                         recursive = TRUE, full.names = FALSE, include.dirs = TRUE)
+      # return descriptors only; do not load monocle3 here
+      lapply(dirs, function(d) list(resource = ..., source = ..., objects = ...))
+    },
+    validate = function(descriptor, root, context) file.exists(file.path(root, descriptor$source)),
+    open = function(descriptor, paths, context) {
+      # namespace-load only when needed; do not attach
+      cds <- monocle3::load_monocle_objects(directory_path = paths$source)
+      stats::setNames(list(cds), descriptor$objects)
+    }
+  )
+}
+projectData_loaders <- function() cds_loader()
+```
+
+The user's analysis keeps its bare names by designating the CDS data package as
+`primary`, and supplementary collections keep names such as `cds_main.reference`
+through `suffix`. Whether `load_monocle_objects()` needs a writable or relocated
+copy of the BPCells directory must be checked against the installed
+monocle3/BPCells versions.
