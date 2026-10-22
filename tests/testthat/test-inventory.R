@@ -63,7 +63,7 @@ test_that("lazy and non-lazy datasets are inventoried, with multi-object resourc
   expect_setequal(pair$object, c("pair_x", "pair_y"))
   multi <- cat[cat$resource == "multi" & cat$collection == "ref", ]
   expect_setequal(multi$object, c("m1", "m2"))
-  expect_true(all(cat$mapping[cat$resource %in% c("pair", "multi")] == "index"))
+  expect_true(all(cat$mapping[cat$resource %in% c("pair", "multi")] == "recorded"))
   # original dataset identifiers are preserved and differ from object names
   expect_false("multi" %in% cat$object)
 })

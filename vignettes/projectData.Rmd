@@ -74,8 +74,8 @@ data_config(messages = TRUE)
 counts_rna
 ```
 
-The message says that local installed files were used and that nothing was
-downloaded. The same code works in a script after the `data_attach()` call.
+The message names the resource and says it is opened from the installed package;
+projectData never installs packages. The same code works in a script after the `data_attach()` call.
 
 Attach another package whenever you need it. Objects already in use are not
 affected.
@@ -98,7 +98,8 @@ data_catalog()[, c("collection", "exposed_name", "resource", "state")]
 A resource that produces several objects is opened once for all of them.
 
 `data_info("counts_rna")` returns the full provenance row for a name: package,
-version, installed location, source file, and how the mapping was determined.
+version, installed location, source file, where it was discovered (`origin`), and
+whether its object names have been checked (`mapping`).
 `data_help("counts_rna")` opens the help page of the original topic in the
 source package. It is separate from inspection and never runs implicitly.
 

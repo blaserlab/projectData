@@ -13,16 +13,31 @@ new_resource <- function(collection, d) {
   rec$value <- NULL
   rec$observed <- NULL
   rec$error <- NULL
+  rec$loader_problem <- NULL
   rec
+}
+
+# Whether the loader can be used right now, from metadata only (no namespace is
+# loaded, no adapter export is called):
+# * registered: a checked loader with this id is in the registry.
+# * unresolved: the manifest names an adapter package that is installed, but
+#   its export has not been called, so nothing is known about the loader.
+# * adapter-error: resolution was attempted and failed (see rec$loader_problem).
+# * unavailable: no registered loader, and no installed adapter named for it.
+# Readiness of the loader says nothing about whether the resource will open.
+loader_status <- function(rec) {
+  if (!is.null(find_loader(rec$loader))) return("registered")
+  if (!is.null(rec$loader_problem)) return("adapter-error")
+  if (!is.null(rec$adapter) && nzchar(system.file(package = rec$adapter$package))) {
+    return("unresolved")
+  }
+  "unavailable"
 }
 
 resource_state <- function(rec) {
   if (rec$state != "unopened") return(rec$state)
-  if (!is.null(find_loader(rec$loader))) return("unopened")
-  if (!is.null(rec$adapter) && nzchar(system.file(package = rec$adapter$package))) {
-    return("unopened")
-  }
-  "unavailable-loader"
+  if (loader_status(rec) %in% c("unavailable", "adapter-error")) return("unavailable-loader")
+  "unopened"
 }
 
 objects_table <- function(descriptors, include) {
@@ -34,7 +49,7 @@ objects_table <- function(descriptors, include) {
                  stringsAsFactors = FALSE)
     } else {
       data.frame(resource = d$resource, object = d$objects,
-                 confidence = if (d$origin == "manifest") "declared" else "index",
+                 confidence = "recorded",
                  title = d$title, help_topic = d$help_topic,
                  recorded_class = d$recorded_class, stringsAsFactors = FALSE)
     }
@@ -63,22 +78,26 @@ resolve_resource_loader <- function(rec) {
              "then retry. Other objects are unaffected.",
              class = "projectData_loader_unavailable")
   }
+  # Any resolution failure is recorded, so the catalog reports it, and is
+  # retried on the next access (it is not sticky).
+  unavailable <- function(msg) {
+    rec$loader_problem <- msg
+    pd_abort(msg, " (needed for loader '", rec$loader, "', resource '", rec$resource,
+             "' of collection '", rec$collection, "'). Other objects are unaffected.",
+             class = "projectData_loader_unavailable")
+  }
   loaders <- tryCatch(
     fetch_adapter_loaders(rec$adapter$package, rec$adapter$export),
-    projectData_loader_unavailable = function(e) {
-      pd_abort(conditionMessage(e), " (needed for loader '", rec$loader,
-               "', resource '", rec$resource, "' of collection '", rec$collection,
-               "'). Other objects are unaffected.",
-               class = "projectData_loader_unavailable")
-    }
+    error = function(e) unavailable(conditionMessage(e))
   )
   ids <- vapply(loaders, function(l) l$id, "")
   if (!rec$loader %in% ids) {
-    pd_abort("Adapter '", rec$adapter$package, "::", rec$adapter$export,
-             "' does not provide loader '", rec$loader, "' (provides: ",
-             paste(ids, collapse = ", "), ").", class = "projectData_loader_unavailable")
+    unavailable(paste0("Adapter '", rec$adapter$package, "::", rec$adapter$export,
+                       "' does not provide loader '", rec$loader, "' (provides: ",
+                       paste(ids, collapse = ", "), ")."))
   }
   for (l in loaders[ids == rec$loader]) add_loader(l, replace = FALSE, builtin = FALSE)
+  rec$loader_problem <- NULL
   find_loader(rec$loader)
 }
 
@@ -167,7 +186,7 @@ open_resource <- function(co, rec) {
               co$id, "' (", co$package, " ", co$version, ")",
               if (length(objs)) paste0(" with object(s) ", paste(objs, collapse = ", ")) else "",
               source_size_text(co, rec), ". Loader ", rec$loader,
-              "; local installed files, nothing is downloaded",
+              "; opened from the installed package (projectData does not install packages)",
               if (loader$storage == "disk-backed") "; disk-backed data are opened, not necessarily loaded into memory" else "",
               ".")
     }

@@ -5,7 +5,7 @@ test_that("manifest-described RDS objects load through the built-in loader", {
   data_attach("pdref", lib.loc = fx$lib)
   cat <- data_catalog()
   r <- cat[cat$object %in% "ref_rds", ]
-  expect_equal(r$mapping, "declared")
+  expect_equal(c(r$origin, r$mapping), c("manifest", "recorded"))
   expect_equal(r$recorded_class, "list")
   expect_equal(r$source, "extdata/refobj.rds")
   expect_length(n$log, 0)
@@ -70,7 +70,7 @@ test_that("a disk-backed backend is discovered, opened lazily from disk, and not
   data_attach("pdref", lib.loc = fx$lib)
   cat <- data_catalog()
   m <- cat[cat$object %in% "mat", ]
-  expect_equal(c(m$storage, m$state, m$mapping), c("disk-backed", "unopened", "index"))
+  expect_equal(c(m$storage, m$state, m$mapping), c("disk-backed", "unopened", "recorded"))
   expect_length(n$log, 0)
   mat <- data_get("mat")
   expect_s3_class(mat, "tinymat")
@@ -106,7 +106,7 @@ test_that("a manifest entry replaces an adapter-discovered candidate", {
   data_loader_add(tinydisk_loader())
   data_attach("pdtm2", lib.loc = lib)
   expect_equal(data_catalog()$object, "renamed_a")
-  expect_equal(data_catalog()$mapping, "declared")
+  expect_equal(data_catalog()[c("origin", "mapping")] |> as.list() |> unlist() |> unname(), c("manifest", "recorded"))
 })
 
 test_that("work directories are distinct, writable copies survive source removal", {
@@ -168,12 +168,12 @@ test_that("manifest validation rejects unsafe paths, bad versions and duplicates
   expect_no_error(data_manifest_validate(mf("ManifestVersion: 1", "", rec("extdata/x.rds"))))
 })
 
-test_that("messages announce opening and distinguish local files from downloads", {
+test_that("messages announce opening without promising anything about reader behavior", {
   local_clean_session()
   fx <- shared_fixtures()
   data_attach("pdref", lib.loc = fx$lib)
   data_config(messages = TRUE)
-  expect_message(data_get("only_ref"), "nothing is downloaded")
+  expect_message(data_get("only_ref"), "does not install packages")
   expect_no_message(data_get("only_ref"))
 })
 

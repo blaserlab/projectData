@@ -186,7 +186,7 @@ validate_with_loader <- function(loader, d, root, context) {
 #' Replacing a loader (`replace = TRUE`) affects resources opened afterwards.
 #' Resources that are already `ready` keep their cached objects. Removing a
 #' loader leaves ready objects untouched, and marks unopened resources that
-#' need it as `unavailable-loader`. Built-in loaders cannot be removed or
+#' need it as `unavailable-loader` (see `loader_status` in [data_catalog()]). Built-in loaders cannot be removed or
 #' replaced.
 #'
 #' @param loader A [data_loader()] object.
@@ -278,7 +278,12 @@ fetch_adapter_loaders <- function(package, export) {
     pd_abort("Adapter package '", package, "' does not export '", export, "'.",
              class = "projectData_loader_unavailable")
   }
-  check_declaration(get(export, envir = ns)())
+  where <- paste0("Adapter '", package, "::", export, "'")
+  declared <- tryCatch(get(export, envir = ns)(),
+                       error = function(e) pd_abort(where, " failed when called: ", conditionMessage(e)))
+  tryCatch(check_declaration(declared),
+           error = function(e) pd_abort(where, " returned an invalid declaration: ",
+                                        conditionMessage(e)))
 }
 
 find_loader <- function(id) .state$loaders[[id]]

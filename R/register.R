@@ -298,7 +298,7 @@ data_retry <- function(collection, resource = NULL) {
 #' Deep inspection of a resource's contents
 #'
 #' Opens the resource through its loader and replaces its object mapping with
-#' the objects actually produced (`mapping = "observed"`). This is the only way
+#' the objects actually produced (`mapping = "verified"`; `origin` is unchanged). This is the only way
 #' to learn the contents of a resource whose mapping is `unknown`. It is
 #' never run implicitly. For ordinary `.rda`/`.RData` datasets the file is
 #' loaded into an isolated environment; `data/*.R` scripts are **executed**.

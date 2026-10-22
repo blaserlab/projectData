@@ -10,8 +10,9 @@ data_config(messages, on_open, ignored_claims)
 \item{messages}{Logical (default \code{TRUE}). Emit a message the first time a
 resource is opened, before any data are read. It names the objects, the
 collection and loader, gives the on-disk size of a single source file when
-there is one, and states that local installed files are used (nothing is
-downloaded). Turn it off with \code{data_config(messages = FALSE)}; the setting
+there is one, and notes that the resource is opened from the installed
+package (projectData never installs packages; what a loader or a data
+script does while opening is up to that code). Turn it off with \code{data_config(messages = FALSE)}; the setting
 lasts for the session.}
 
 \item{on_open}{Optional function called with a list (\code{collection},

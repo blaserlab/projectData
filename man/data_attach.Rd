@@ -105,10 +105,11 @@ resource are opened and cached together even if not exposed.
 
 \section{Mapping completeness}{
 
-The catalog's \code{mapping} column is \code{index} (from install-time metadata),
-\code{declared} (manifest), \code{unknown} (resource exists, objects not known),
-\code{observed} (after \code{\link[=data_inspect]{data_inspect()}}) or \code{verified} (opened and matching).
-Unknown mappings are never guessed.
+The catalog's \code{origin} column says how a resource was discovered (\code{index},
+\code{adapter} or \code{manifest}) and its \code{mapping} column whether the object names
+were checked: \code{recorded} (named by the origin, unchecked), \code{unknown},
+\code{verified} (opened or inspected, and produced) or \code{mismatch}. Unknown
+mappings are never guessed. See \code{\link[=data_catalog]{data_catalog()}}.
 }
 
 \section{Script datasets (\verb{data/*.R})}{

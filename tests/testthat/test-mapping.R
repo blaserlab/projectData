@@ -111,7 +111,7 @@ test_that("genuine opening failure is not a mapping result and keeps retry seman
   cat <- data_catalog()
   expect_equal(cat$state[cat$resource == "example_set"], "failed")
   expect_equal(cat$object[cat$resource == "example_set"], "example_set")
-  expect_equal(cat$mapping[cat$resource == "example_set"], "declared")
+  expect_equal(cat$mapping[cat$resource == "example_set"], "recorded")
   expect_error(suppressWarnings(data_get("example_set")), "data_retry",
                class = "projectData_opening_failed")
   expect_length(n$log, 1)

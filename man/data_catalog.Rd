@@ -34,20 +34,43 @@ Columns: \code{collection}, \code{package}, \code{version}, \code{library}, \cod
 \code{binding} (\code{bound}: the bare name resolves to this row; \code{not_bound}: lost to
 a preference or primary; \code{ambiguous}: unresolved conflict; \code{unattached}: the
 collection is registered, for example by \code{\link[=data_get]{data_get()}}, but not attached;
-\code{excluded}: not selected by \code{include}; \code{unmapped}: object unknown), \code{loader}, \code{source},
-\code{help_topic}, \code{title}, \code{mapping}, \code{state}, \code{storage}, \code{recorded_class}.
+\code{excluded}: not selected by \code{include}; \code{unmapped}: object unknown), \code{loader},
+\code{loader_status}, \code{source}, \code{help_topic}, \code{title}, \code{origin}, \code{mapping},
+\code{state}, \code{storage}, \code{recorded_class}.
+
+\code{origin} says where the resource's description came from, and never changes
+after registration: \code{index} (the standard package data index and \verb{data/}
+directory), \code{adapter} (a registered loader's \code{discover()}; the \code{loader}
+column names it) or \code{manifest} (an explicit manifest record). It is about
+discovery only and says nothing about whether the object names are right.
+
+\code{mapping} is whether the object name has been checked: \code{recorded} (named by
+the origin, not checked against what the resource produces), \code{unknown}
+(object names not known), \code{verified} (the resource was opened or inspected
+and produced this name) or \code{mismatch} (opened, but the name is absent;
+retrieval then fails with an error listing the observed names, see
+\code{\link[=data_inspect]{data_inspect()}}). Each recorded name is checked individually, and objects
+returned but not recorded are not listed until inspection, so a partly
+matching resource is never wholly verified by one matching name.
+\code{\link[=data_inspect]{data_inspect()}} replaces the names with the observed ones, which are
+\code{verified}, and leaves \code{origin} as it was.
 
 \code{state} is one of \code{unopened}, \code{opening}, \code{ready}, \code{failed},
 \code{unavailable-loader}. \code{ready} means the loader returned; for \code{storage} =
 \code{disk-backed} this does not mean the data are in memory. \code{recorded_class}
 is whatever the creator declared; it is \strong{recorded, not observed}.
-\code{mapping} is how the object name was determined: \code{index}, \code{declared},
-\code{observed} or \code{unknown}. Once a resource is ready, each recorded name is
-checked individually against the objects the loader actually returned:
-\code{verified} if present, \code{mismatch} if absent (retrieval then fails with an
-error listing the observed names; see \code{\link[=data_inspect]{data_inspect()}} to correct it).
-Objects returned but not recorded are not listed until inspection, so a
-partly matching resource is never wholly verified by one matching name.
+
+\code{loader_status} reports whether the loader is usable, from metadata only:
+\code{registered} (a loader with that id is registered in this session),
+\code{unresolved} (not registered, but a manifest names an adapter package that
+is installed; the adapter has \strong{not} been loaded or checked, so it may still
+turn out to be malformed or lack the loader), \code{adapter-error} (resolution was
+attempted on access and failed; the access error says why, and the next
+access tries again) and \code{unavailable} (not registered, and no installed
+adapter is named). Catalog and query operations never load an adapter to
+improve this label. Loader readiness is separate from the resource: a
+\code{registered} loader can still fail validation or opening. \code{state} is
+\code{unavailable-loader} for \code{unavailable} and \code{adapter-error}.
 
 \code{source} is the path of the resource's file relative to \code{root}, and it can be
 \code{NA}. That happens when the package index lists a dataset for which no file

@@ -153,10 +153,11 @@ data_masking <- function() {
 #' resource are opened and cached together even if not exposed.
 #'
 #' @section Mapping completeness:
-#' The catalog's `mapping` column is `index` (from install-time metadata),
-#' `declared` (manifest), `unknown` (resource exists, objects not known),
-#' `observed` (after [data_inspect()]) or `verified` (opened and matching).
-#' Unknown mappings are never guessed.
+#' The catalog's `origin` column says how a resource was discovered (`index`,
+#' `adapter` or `manifest`) and its `mapping` column whether the object names
+#' were checked: `recorded` (named by the origin, unchecked), `unknown`,
+#' `verified` (opened or inspected, and produced) or `mismatch`. Unknown
+#' mappings are never guessed. See [data_catalog()].
 #'
 #' @section Script datasets (`data/*.R`):
 #' Packages that ship non-lazy data scripts are supported. The script is run

@@ -17,7 +17,7 @@ The updated catalog rows for the collection, invisibly.
 }
 \description{
 Opens the resource through its loader and replaces its object mapping with
-the objects actually produced (\code{mapping = "observed"}). This is the only way
+the objects actually produced (\code{mapping = "verified"}; \code{origin} is unchanged). This is the only way
 to learn the contents of a resource whose mapping is \code{unknown}. It is
 never run implicitly. For ordinary \code{.rda}/\code{.RData} datasets the file is
 loaded into an isolated environment; \verb{data/*.R} scripts are \strong{executed}.

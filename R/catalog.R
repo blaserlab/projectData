@@ -11,20 +11,43 @@
 #' `binding` (`bound`: the bare name resolves to this row; `not_bound`: lost to
 #' a preference or primary; `ambiguous`: unresolved conflict; `unattached`: the
 #' collection is registered, for example by [data_get()], but not attached;
-#' `excluded`: not selected by `include`; `unmapped`: object unknown), `loader`, `source`,
-#' `help_topic`, `title`, `mapping`, `state`, `storage`, `recorded_class`.
+#' `excluded`: not selected by `include`; `unmapped`: object unknown), `loader`,
+#' `loader_status`, `source`, `help_topic`, `title`, `origin`, `mapping`,
+#' `state`, `storage`, `recorded_class`.
+#'
+#' `origin` says where the resource's description came from, and never changes
+#' after registration: `index` (the standard package data index and `data/`
+#' directory), `adapter` (a registered loader's `discover()`; the `loader`
+#' column names it) or `manifest` (an explicit manifest record). It is about
+#' discovery only and says nothing about whether the object names are right.
+#'
+#' `mapping` is whether the object name has been checked: `recorded` (named by
+#' the origin, not checked against what the resource produces), `unknown`
+#' (object names not known), `verified` (the resource was opened or inspected
+#' and produced this name) or `mismatch` (opened, but the name is absent;
+#' retrieval then fails with an error listing the observed names, see
+#' [data_inspect()]). Each recorded name is checked individually, and objects
+#' returned but not recorded are not listed until inspection, so a partly
+#' matching resource is never wholly verified by one matching name.
+#' [data_inspect()] replaces the names with the observed ones, which are
+#' `verified`, and leaves `origin` as it was.
 #'
 #' `state` is one of `unopened`, `opening`, `ready`, `failed`,
 #' `unavailable-loader`. `ready` means the loader returned; for `storage` =
 #' `disk-backed` this does not mean the data are in memory. `recorded_class`
 #' is whatever the creator declared; it is **recorded, not observed**.
-#' `mapping` is how the object name was determined: `index`, `declared`,
-#' `observed` or `unknown`. Once a resource is ready, each recorded name is
-#' checked individually against the objects the loader actually returned:
-#' `verified` if present, `mismatch` if absent (retrieval then fails with an
-#' error listing the observed names; see [data_inspect()] to correct it).
-#' Objects returned but not recorded are not listed until inspection, so a
-#' partly matching resource is never wholly verified by one matching name.
+#'
+#' `loader_status` reports whether the loader is usable, from metadata only:
+#' `registered` (a loader with that id is registered in this session),
+#' `unresolved` (not registered, but a manifest names an adapter package that
+#' is installed; the adapter has **not** been loaded or checked, so it may still
+#' turn out to be malformed or lack the loader), `adapter-error` (resolution was
+#' attempted on access and failed; the access error says why, and the next
+#' access tries again) and `unavailable` (not registered, and no installed
+#' adapter is named). Catalog and query operations never load an adapter to
+#' improve this label. Loader readiness is separate from the resource: a
+#' `registered` loader can still fail validation or opening. `state` is
+#' `unavailable-loader` for `unavailable` and `adapter-error`.
 #'
 #' `source` is the path of the resource's file relative to `root`, and it can be
 #' `NA`. That happens when the package index lists a dataset for which no file
@@ -50,8 +73,8 @@ data_catalog <- function(collection = NULL) catalog_for(.state, collection)
 catalog_for <- function(st, collection = NULL) {
   res <- resolve_names(st)
   cols <- c("collection", "package", "version", "library", "root", "resource",
-            "object", "exposed_name", "kind", "binding", "loader", "source",
-            "help_topic", "title", "mapping", "state", "storage", "recorded_class")
+            "object", "exposed_name", "kind", "binding", "loader", "loader_status", "source",
+            "help_topic", "title", "origin", "mapping", "state", "storage", "recorded_class")
   parts <- lapply(st$collections, function(co) {
     if (!is.null(collection) && !co$id %in% collection) return(NULL)
     o <- co$objects
@@ -66,12 +89,17 @@ catalog_for <- function(st, collection = NULL) {
     for (i in which(state == "ready" & !is.na(o$object))) {
       mapping[i] <- if (o$object[i] %in% recs[[i]]$observed) "verified" else "mismatch"
     }
+    # Names set by data_inspect() came from the loader's own output.
+    mapping[mapping == "observed"] <- "verified"
     base <- data.frame(
       collection = co$id, package = co$package, version = co$version,
       library = co$library, root = co$root, resource = o$resource, object = o$object,
       loader = vapply(recs, function(r) r$loader, ""),
+      loader_status = vapply(recs, loader_status, ""),
       source = vapply(recs, function(r) r$source, ""),
-      help_topic = o$help_topic, title = o$title, mapping = mapping,
+      help_topic = o$help_topic, title = o$title,
+      origin = vapply(recs, function(r) sub(":.*$", "", r$descriptor$origin %||% "unknown"), ""),
+      mapping = mapping,
       state = state, storage = storage, recorded_class = o$recorded_class,
       exposed = o$exposed, stringsAsFactors = FALSE, row.names = NULL
     )
@@ -107,7 +135,7 @@ catalog_for <- function(st, collection = NULL) {
 #' @export
 print.projectData_catalog <- function(x, ...) {
   cat("<projectData catalog>: ", nrow(x), " row(s); metadata only, no data opened.\n", sep = "")
-  show <- c("collection", "exposed_name", "object", "resource", "binding", "mapping", "state")
+  show <- c("collection", "exposed_name", "object", "resource", "binding", "origin", "mapping", "state")
   y <- unclass_catalog(x)
   y <- y[, intersect(show, names(y)), drop = FALSE]
   print(y, row.names = FALSE, ...)

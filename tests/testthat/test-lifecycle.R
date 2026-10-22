@@ -142,7 +142,7 @@ test_that("the first-access message names objects and size, and can be turned of
   expect_equal(data_config()$messages, FALSE) # set by local_clean_session()
   data_config(messages = TRUE)
   expect_message(data_get("m1"), "object\\(s\\) m1, m2 \\[.* on disk: data/multi.rda\\]")
-  expect_message(data_get("only_ref"), "nothing is downloaded")
+  expect_message(data_get("only_ref"), "does not install packages")
   expect_no_message(data_get("only_ref"))
   data_config(messages = FALSE)
   expect_no_message(data_get("ref_rds"))
