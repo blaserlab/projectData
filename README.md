@@ -13,13 +13,15 @@ license details in `DESCRIPTION` are placeholders pending confirmation.
 
 ```r
 library(projectData)
-data_register(c("mainData", "refData"), id = c("main", "reference"),
-              suffix = c(NA, ".reference"), primary = "main")
-data_catalog()    # metadata only; nothing is opened
-data_attach()     # optional facade for bare names
-cds_main          # opened on first use
-data_get("cds_main", collection = "reference")
+data_attach(c("rnaseqData", "proteinData"))  # inventory + attach; no data read
+counts_rna                                   # opened on first use
+data_catalog()                               # metadata only
 ```
+
+If two attached packages define the same name, resolve it with
+`data_prefer()`, `data_primary()` or a `suffix`, or use
+`data_get(name, collection = )`. `data_register()` builds the inventory without
+attaching, for inspecting a package first.
 
 See `vignette("projectData")` and `vignette("adapters")`. Installation of data
 packages (including from tarballs) is separate from registration.

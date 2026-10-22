@@ -1,8 +1,8 @@
 ---
-title: "Using projectData: a primary collection plus references"
+title: "Using projectData"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Using projectData: a primary collection plus references}
+  %\VignetteIndexEntry{Using projectData}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -11,108 +11,190 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-## Installing versus registering
+projectData makes the objects in installed data packages available under the
+names you expect, and reads each object only when you first use it. The normal
+workflow has three steps:
 
-Two separate steps are easy to confuse.
+1. **Install** the data package.
+2. **Attach** it.
+3. **Use** its objects, interactively or in a script.
 
-1. **Installing** puts a data package on disk. That is ordinary R package
-   installation and is *not* done by projectData. A package distributed as a
-   tarball (for example from Zenodo) is installed with
-   `install.packages("path/to/mydata_0.3.0.tar.gz", repos = NULL, type = "source")`.
-2. **Registering** tells projectData, for this session, which installed
-   packages to treat as data collections. It reads package metadata only.
-   No data values are read, nothing is installed, and nothing is attached to
-   the search path until you ask.
+Need another data package later? Attach it too. If the packages define the same
+name, projectData asks you to decide which one you mean (see
+[Conflicts](#conflicts)); it never picks a winner by order.
 
-This vignette builds two tiny throwaway data packages in a temporary library so
-that it runs offline. In real use you would skip this chunk.
+## 1. Install
+
+Installing is ordinary R package installation and is not done by projectData. A
+data package distributed as a tarball (for example from Zenodo) is installed
+like any source package:
+
+```r
+install.packages("path/to/rnaseqData_1.0.0.tar.gz", repos = NULL, type = "source")
+```
+
+To keep this vignette offline, the next chunk builds two tiny throwaway data
+packages in a temporary library. In real use, skip this chunk and omit the
+`lib.loc` argument below.
 
 ```{r fixtures}
 library(projectData)
 source(system.file("examples", "fixtures.R", package = "projectData"))
 
 lib <- fixture_library()
-fixture_package(lib, "mainData", "1.0.0", lazy = TRUE, datasets = list(
-  cds_main = list(cds_main = "primary cds"),
-  samples  = list(sample_table = data.frame(id = 1:3))
+fixture_package(lib, "rnaseqData", "1.0.0", lazy = TRUE, datasets = list(
+  counts_rna = list(counts_rna = matrix(1:6, 2)),
+  meta_rna   = list(meta_rna = data.frame(sample = c("a", "b")))
 ))
-fixture_package(lib, "refData", "1.0.0", lazy = FALSE, datasets = list(
-  cds_main = list(cds_main = "reference cds"),
-  extra    = list(ref_only = "only in the reference")
+fixture_package(lib, "proteinData", "2.1.0", lazy = FALSE, datasets = list(
+  counts_prot = list(counts_prot = matrix(7:12, 2)),
+  meta_prot   = list(meta_prot = data.frame(sample = c("a", "b")))
 ))
 ```
 
-## Register a primary collection and a reference
+## 2. Attach
 
-`primary` is an explicit choice: it decides who keeps bare names when two
-collections define the same name. The `suffix` for the reference keeps a
-compatible alias such as `cds_main.reference`. Registering reads no data.
-
-```{r register}
-data_register(
-  c("mainData", "refData"), lib.loc = lib,
-  id = c("main", "reference"),
-  suffix = c(NA, ".reference"),
-  primary = "main"
-)
-data_catalog()
-```
-
-The catalog is built from recorded metadata only. `binding` shows what the bare
-name resolves to: `cds_main` belongs to the primary, while the reference's copy
-is `not_bound` and reachable by alias or qualification.
-
-## Attach the optional facade
-
-Attaching is explicit. After that, analysis code uses bare names.
+`data_attach()` takes the name of an installed data package. It records what
+the package contains and puts its objects on the search path under their own
+names. This reads package metadata only: no data values are read, and nothing is
+installed. Nothing is attached unless you call this function.
 
 ```{r attach}
+data_attach("rnaseqData", lib.loc = lib)
+```
+
+## 3. Use
+
+Use the objects by their ordinary names. The first use of an object reads it.
+
+```{r use}
 data_config(messages = TRUE)
-data_attach()
-
-cds_main
-cds_main.reference
-ref_only
+counts_rna
 ```
 
-Each resource was opened once, on first use. The messages above say that local
-installed files were used and that nothing was downloaded.
+The message says that local installed files were used and that nothing was
+downloaded. The same code works in a script after the `data_attach()` call.
 
-## Qualified access, without attaching
+Attach another package whenever you need it. Objects already in use are not
+affected.
 
-```{r qualified}
-data_get("cds_main", collection = "reference")
-get("sample_table", envir = data_env("main"))
+```{r attach-second}
+data_attach("proteinData", lib.loc = lib)
+counts_prot
 ```
 
-## Conflicts are errors, not silent winners
+## Looking at what is available
 
-Without a primary or preference, a contested name cannot be resolved by
-registration order. It is flagged in the catalog and fails on access.
+Everything below reads only recorded metadata. It never opens any data.
+
+```{r catalog}
+data_catalog()[, c("collection", "exposed_name", "resource", "state")]
+```
+
+`state` is `unopened` until the object has been used, then `ready`. The
+`resource` column is the loadable unit, which can differ from the object name.
+A resource that produces several objects is opened once for all of them.
+
+`data_info("counts_rna")` returns the full provenance row for a name: package,
+version, installed location, source file, and how the mapping was determined.
+`data_help("counts_rna")` opens the help page of the original topic in the
+source package. It is separate from inspection and never runs implicitly.
+
+## Loading individual objects
+
+Attaching registers the package, and these functions then work on any registered
+collection, attached or not. They take objects by explicit call, without relying
+on names on the search path (the next section shows registering without
+attaching):
+
+```{r explicit}
+data_get("meta_prot")                      # resolved like a bare name
+data_get("meta_rna", collection = "rnaseqData")   # qualified by collection
+get("meta_rna", envir = data_env("rnaseqData"))   # one collection's environment
+```
+
+`data_load()` opens resources eagerly, for predictable batch runs.
+
+In scripts, `data_get()` is the most robust access path, because attached
+bindings can be evaluated by IDE completion or previews (see
+`system.file("ide-repro", package = "projectData")`).
+
+## Inspecting a package without attaching it
+
+`data_register()` builds the same inventory as `data_attach()` but exposes no
+names. Use it to see what a data package offers before deciding to attach it.
+A collection that is registered can later be attached by its id.
+
+```{r register}
+data_detach()
+data_unregister(data_collections()$id)
+
+fixture_package(lib, "rnaseqBatch2", "1.0.0", lazy = TRUE, datasets = list(
+  counts_rna = list(counts_rna = matrix(101:106, 2)),
+  meta_rna   = list(meta_rna = data.frame(sample = c("c", "d")))
+))
+
+data_register(c("rnaseqData", "rnaseqBatch2"), lib.loc = lib, id = c("batch1", "batch2"))
+data_collections()[, c("id", "package", "version", "attached")]
+data_catalog()[, c("collection", "exposed_name", "binding", "state")]
+```
+
+The catalog already shows the problem here: `counts_rna` and `meta_rna` exist in
+both collections, so their `binding` is `ambiguous`. Registering does not change
+the search path, and it reads no data.
+
+## Conflicts {#conflicts}
+
+When two attached collections define the same name, the name cannot be resolved
+by order. Attaching still succeeds, and the catalog flags the conflict. Using the
+bare name fails with an error that lists the candidates:
 
 ```{r conflict, error = TRUE}
-data_primary(NULL)
-data_catalog()[, c("collection", "exposed_name", "binding")]
-cds_main
+data_attach(c("batch1", "batch2"))
+counts_rna
 ```
 
-A per-object preference resolves it without changing any analysis code:
+There are three ways to resolve it, and they can be combined.
+
+**Per-object preference.** Choose the collection for a particular name. This is
+the right tool when several collections are equally important.
 
 ```{r prefer}
-data_prefer("cds_main", "main")
-cds_main
-data_preferences()
+data_prefer("counts_rna", "batch1")
+counts_rna
 ```
 
-## Provenance and help
+Other contested names stay unresolved until you decide them:
 
-```{r provenance}
-data_info("cds_main.reference")[, c("collection", "package", "version", "resource",
-                                    "object", "source", "mapping", "state")]
+```{r prefer-others, error = TRUE}
+meta_rna
 ```
 
-`data_help("cds_main.reference")` opens the help page of the original topic in
-the source package; it is separate from inspection and never runs implicitly.
+**A primary collection.** If one collection should win *all* its contested
+names, designate it. There is at most one, and a preference for a specific name
+still overrides it. It can also be set when attaching:
+`data_attach("batch1", primary = "batch1")`.
+
+```{r primary}
+data_primary("batch1")
+meta_rna
+```
+
+**Suffix aliases and qualified access.** A suffix exposes every object in a
+collection also as `<name><suffix>`, which is handy for keeping older code
+working. Set it when you attach. Qualified access, `data_get(name, collection =)`,
+needs no setting.
+
+```{r suffix}
+data_attach("rnaseqBatch2", lib.loc = lib, id = "batch2", suffix = ".batch2",
+            replace = TRUE)
+counts_rna.batch2
+data_get("counts_rna", collection = "batch2")
+```
+
+Suffix aliases must be unique. A clash is reported when you attach, before
+anything is changed. To clear decisions, use `data_prefer("counts_rna", NULL)`
+and `data_primary(NULL)`.
 
 ## Cleaning up
 
@@ -121,15 +203,16 @@ data_detach()
 data_unregister(data_collections()$id)
 ```
 
+`data_detach()` removes only the environment projectData created.
+`data_unregister()` removes registrations. Neither deletes files or affects
+objects you already hold.
+
 ## What this does not do
 
 * Class compatibility, software versions, backing files, and platform-specific
   readers still matter; projectData does not guarantee reproducibility.
 * Returned objects are shared references to one cached resource, not
   independent copies.
-* IDE completion or previews may evaluate attached bindings. See the manual
-  reproduction in `system.file("ide-repro", package = "projectData")` and
-  prefer `data_get()` in scripts.
 * Related tools: `conflicted` resolves conflicts between package exports and
   `library(include.only = )` selects exports. They work with exported data but
   do not provide collection inventory, deferred access beyond lazy data,

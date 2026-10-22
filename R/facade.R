@@ -113,13 +113,25 @@ data_masking <- function() {
   find_masks(planned_names(.state), env)
 }
 
-#' Attach and detach the optional facade
+#' Attach data packages
 #'
-#' `data_attach()` places one environment, by default named
-#' `"projectData:data"`, on the search path at `pos` and exposes bare names
-#' for the selected registered collections as active bindings. Nothing is
-#' attached unless you call it. Registering a collection later does not add it
-#' to the facade; call `data_attach()` again.
+#' `data_attach()` is the normal way to make data available. Given package
+#' names it registers any that are not yet registered (with the same arguments
+#' and the same atomic validation as [data_register()]) and then places one
+#' environment, by default named `"projectData:data"`, on the search path at
+#' `pos`, exposing the objects as bare names through deferred active bindings.
+#' Nothing is read until you use an object. Nothing is attached unless you call
+#' this function. Call it again to attach more packages; later calls add to the
+#' same environment.
+#'
+#' Each element of `packages` is either a package name to register, or the id
+#' of a collection that is already registered (for example one inspected with
+#' [data_register()]), which is simply attached. If you pass registration
+#' arguments (`lib.loc`, `suffix`, `include`) for an id that is already
+#' registered you must also give `replace = TRUE`. An already registered
+#' collection whose installed package has changed since registration is
+#' reported as an error and must be re-registered with `replace = TRUE`.
+#' With `packages = NULL`, all registered collections are attached.
 #'
 #' Name resolution is metadata-only. The bare name of an object that exists in
 #' several collections is bound only if you designated a primary collection
@@ -136,19 +148,42 @@ data_masking <- function() {
 #' created. Objects already returned to you, and the backing files they use,
 #' are unaffected.
 #'
-#' @param collections Collection ids; `NULL` means all registered collections
-#'   (`data_attach`) or the whole facade (`data_detach`).
+#' @inheritParams data_register
+#' @param packages Package names to register and attach, or ids of registered
+#'   collections; `NULL` means all registered collections.
+#' @param collections For `data_detach()`: collection ids to remove from the
+#'   facade; `NULL` removes the whole facade.
 #' @param name Search-path name of the facade.
 #' @param pos Search-path position.
 #' @param on_mask One of `"warn"`, `"error"`, `"ignore"`.
 #' @return Invisibly, the names bound in the facade.
 #' @export
-data_attach <- function(collections = NULL, name = "projectData:data", pos = 2L,
+data_attach <- function(packages = NULL, lib.loc = NULL, id = packages,
+                        suffix = NULL, include = NULL, primary = NULL,
+                        replace = FALSE, name = "projectData:data", pos = 2L,
                         on_mask = c("warn", "error", "ignore")) {
   on_mask <- match.arg(on_mask)
   cand <- snapshot()
-  ids <- collections %||% names(cand$collections)
-  for (id in ids) get_collection(id)
+  if (is.null(packages)) {
+    ids <- names(cand$collections)
+  } else {
+    stopifnot(is.character(packages), length(packages) >= 1L)
+    id <- as.character(id)
+    if (length(id) != length(packages)) pd_abort("`id` must have one element per package.")
+    if (!is.null(suffix) && length(suffix) != length(packages)) {
+      pd_abort("`suffix` must have one element per package.")
+    }
+    ids <- id
+    existing <- id %in% names(cand$collections) & !replace &
+      is.null(lib.loc) & is.null(suffix) & is.null(include)
+    for (i in id[existing]) check_installation_unchanged(get_collection(i, cand))
+    if (any(!existing)) {
+      cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
+                              if (is.null(suffix)) NULL else suffix[!existing],
+                              include, replace)
+    }
+  }
+  if (!is.null(primary)) cand$primary <- primary
   f <- cand$facade
   if (is.na(facade_pos(f$env))) {
     if (name %in% search()) {

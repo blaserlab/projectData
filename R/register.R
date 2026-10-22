@@ -69,6 +69,15 @@ build_collection <- function(package, lib.loc, id, suffix, include) {
 #' @export
 data_register <- function(packages, lib.loc = NULL, id = packages, suffix = NULL,
                           include = NULL, primary = NULL, replace = FALSE) {
+  cand <- add_collections(snapshot(), packages, lib.loc, id, suffix, include, replace)
+  if (!is.null(primary)) cand$primary <- primary
+  validate_state(cand)
+  commit_state(cand)
+  invisible(as.character(id))
+}
+
+# Builds collections and adds them to a candidate state; nothing is committed.
+add_collections <- function(cand, packages, lib.loc, id, suffix, include, replace) {
   n <- length(packages)
   stopifnot(is.character(packages), n >= 1L, length(id) == n)
   id <- as.character(id)
@@ -79,7 +88,6 @@ data_register <- function(packages, lib.loc = NULL, id = packages, suffix = NULL
     if (n != 1L) pd_abort("`include` must be a named list when registering several packages.")
     include <- stats::setNames(list(include), id)
   }
-  cand <- snapshot()
   taken <- intersect(id, names(cand$collections))
   if (length(taken) && !replace) {
     pd_abort("Collection(s) already registered: ", quote_names(taken),
@@ -89,10 +97,7 @@ data_register <- function(packages, lib.loc = NULL, id = packages, suffix = NULL
     cand$collections[[id[i]]] <- build_collection(packages[i], lib.loc, id[i],
                                                   suffix[i], include[[id[i]]])
   }
-  if (!is.null(primary)) cand$primary <- primary
-  validate_state(cand)
-  commit_state(cand)
-  invisible(id)
+  cand
 }
 
 #' Unregister collections

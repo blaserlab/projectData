@@ -80,3 +80,50 @@ test_that("replacing an installation in place is detected before opening", {
   data_register("pdswap", lib.loc = lib_b, replace = TRUE)
   expect_identical(data_get("a"), "rebuilt")
 })
+
+test_that("data_attach() registers package names and attaches in one step", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  n <- local_open_counter()
+  expect_false("projectData:data" %in% search())
+  data_attach(c("pdmain", "pdref"), lib.loc = fx$lib, id = c("main", "ref"), primary = "main")
+  expect_equal(data_collections()$id, c("main", "ref"))
+  expect_true(all(data_collections()$attached))
+  expect_length(n$log, 0)
+  expect_identical(cds_main, "main-v1")
+  expect_identical(only_ref, 3)
+  # attaching an id that is already registered just attaches it
+  data_detach()
+  expect_false(any(data_collections()$attached))
+  data_attach("ref")
+  expect_equal(data_collections()$attached, c(FALSE, TRUE))
+  expect_error(data_attach("ref", suffix = ".r"), "already registered")
+  data_attach("pdref", id = "ref", suffix = ".r", replace = TRUE, lib.loc = fx$lib)
+  expect_identical(only_ref.r, 3)
+})
+
+test_that("a failed data_attach() registers and attaches nothing", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  expect_error(
+    data_attach(c("pdmain", "pdref"), lib.loc = fx$lib, id = c("a", "b"), suffix = c(".x", ".x")),
+    class = "projectData_name_collision"
+  )
+  expect_equal(nrow(data_collections()), 0)
+  expect_false("projectData:data" %in% search())
+  expect_error(data_attach("nonexistentpkg"), class = "projectData_not_installed")
+  expect_equal(nrow(data_collections()), 0)
+})
+
+test_that("attaching a registered collection whose installation changed is refused", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdchg", "0.1.0", datasets = list(a = list(a = "old")))
+  data_register("pdchg", lib.loc = lib)
+  unlink(file.path(lib, "pdchg"), recursive = TRUE)
+  fixture_package(lib, "pdchg", "0.1.0", datasets = list(a = list(a = "new")))
+  expect_error(data_attach("pdchg"), class = "projectData_stale_installation")
+  expect_false("projectData:data" %in% search())
+  data_attach("pdchg", lib.loc = lib, replace = TRUE)
+  expect_identical(a, "new")
+})

@@ -3,10 +3,16 @@
 \name{data_attach}
 \alias{data_attach}
 \alias{data_detach}
-\title{Attach and detach the optional facade}
+\title{Attach data packages}
 \usage{
 data_attach(
-  collections = NULL,
+  packages = NULL,
+  lib.loc = NULL,
+  id = packages,
+  suffix = NULL,
+  include = NULL,
+  primary = NULL,
+  replace = FALSE,
   name = "projectData:data",
   pos = 2L,
   on_mask = c("warn", "error", "ignore")
@@ -15,26 +21,57 @@ data_attach(
 data_detach(collections = NULL)
 }
 \arguments{
-\item{collections}{Collection ids; \code{NULL} means all registered collections
-(\code{data_attach}) or the whole facade (\code{data_detach}).}
+\item{packages}{Package names to register and attach, or ids of registered
+collections; \code{NULL} means all registered collections.}
+
+\item{lib.loc}{Library directories searched, in order, for each package.}
+
+\item{id}{Collection ids (default: package names).}
+
+\item{suffix}{\code{NULL} or one suffix per package (\code{NA} for none). Exposes each
+object also as \verb{<object><suffix>}, e.g. \code{cds_main.reference}.}
+
+\item{include}{\code{NULL}, or a named list (names are collection ids) of
+object/resource names to expose. A character vector is accepted when
+registering one package.}
+
+\item{primary}{\code{NULL} or the id of the collection whose objects keep bare
+names when contested. Equivalent to calling \code{\link[=data_primary]{data_primary()}}.}
+
+\item{replace}{Replace collections that are already registered.}
 
 \item{name}{Search-path name of the facade.}
 
 \item{pos}{Search-path position.}
 
 \item{on_mask}{One of \code{"warn"}, \code{"error"}, \code{"ignore"}.}
+
+\item{collections}{For \code{data_detach()}: collection ids to remove from the
+facade; \code{NULL} removes the whole facade.}
 }
 \value{
 Invisibly, the names bound in the facade.
 }
 \description{
-\code{data_attach()} places one environment, by default named
-\code{"projectData:data"}, on the search path at \code{pos} and exposes bare names
-for the selected registered collections as active bindings. Nothing is
-attached unless you call it. Registering a collection later does not add it
-to the facade; call \code{data_attach()} again.
+\code{data_attach()} is the normal way to make data available. Given package
+names it registers any that are not yet registered (with the same arguments
+and the same atomic validation as \code{\link[=data_register]{data_register()}}) and then places one
+environment, by default named \code{"projectData:data"}, on the search path at
+\code{pos}, exposing the objects as bare names through deferred active bindings.
+Nothing is read until you use an object. Nothing is attached unless you call
+this function. Call it again to attach more packages; later calls add to the
+same environment.
 }
 \details{
+Each element of \code{packages} is either a package name to register, or the id
+of a collection that is already registered (for example one inspected with
+\code{\link[=data_register]{data_register()}}), which is simply attached. If you pass registration
+arguments (\code{lib.loc}, \code{suffix}, \code{include}) for an id that is already
+registered you must also give \code{replace = TRUE}. An already registered
+collection whose installed package has changed since registration is
+reported as an error and must be re-registered with \code{replace = TRUE}.
+With \code{packages = NULL}, all registered collections are attached.
+
 Name resolution is metadata-only. The bare name of an object that exists in
 several collections is bound only if you designated a primary collection
 (\code{\link[=data_primary]{data_primary()}}) or a preference (\code{\link[=data_prefer]{data_prefer()}}); otherwise it is bound
