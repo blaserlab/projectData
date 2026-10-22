@@ -137,10 +137,10 @@ inventory_datasets <- function(root) {
 #' @return A list of validated descriptors, invisibly.
 #' @export
 data_manifest_validate <- function(file, root = dirname(dirname(file))) {
-  invisible(read_manifest(file, root))
+  invisible(read_manifest(file, root, root_context(root)))
 }
 
-read_manifest <- function(file, root) {
+read_manifest <- function(file, root, context) {
   fail <- function(...) pd_abort("Invalid manifest ", basename(dirname(file)), "/",
                                  basename(file), ": ", ..., class = "projectData_manifest_error")
   m <- tryCatch(read.dcf(file), error = function(e) fail("not readable as DCF (", conditionMessage(e), ")"))
@@ -188,7 +188,7 @@ read_manifest <- function(file, root) {
               recorded_class = get(i, "RecordedClass"), adapter = adapter,
               origin = "manifest")
     d <- normalize_descriptor(d, default_loader = NULL)
-    check_descriptor(d, root, fail = fail)
+    check_descriptor(d, root, context, fail = fail)
     d
   })
 }
@@ -222,7 +222,7 @@ normalize_descriptor <- function(d, default_loader, origin = d$origin) {
        adapter = d$adapter, origin = origin %||% "unknown")
 }
 
-check_descriptor <- function(d, root, fail = function(...) pd_abort(...)) {
+check_descriptor <- function(d, root, context, fail = function(...) pd_abort(...)) {
   where <- paste0("resource ", deparse(d$resource), ": ")
   if (!is_scalar_string(d$resource)) fail("descriptor needs a non-empty `resource` id")
   if (!is_scalar_string(d$loader) || !grepl(loader_id_pattern, d$loader)) {
@@ -250,12 +250,15 @@ check_descriptor <- function(d, root, fail = function(...) pd_abort(...)) {
   }
   loader <- find_loader(d$loader)
   if (!is.null(loader) && !is.null(loader$validate)) {
-    res <- loader$validate(d, root, list(resource = d$resource))
-    if (!isTRUE(res)) {
-      fail(where, if (is.character(res)) paste(res, collapse = "; ") else "loader rejected the descriptor")
-    }
+    msg <- validate_with_loader(loader, d, root, replace_resource(context, d$resource))
+    if (!is.null(msg)) fail(where, msg)
   }
   invisible(d)
+}
+
+replace_resource <- function(context, resource) {
+  context$resource <- resource
+  context
 }
 
 # Assembling a collection's resources ----------------------------------------
@@ -299,7 +302,7 @@ assemble_descriptors <- function(root, context) {
   }
 
   mf <- file.path(root, manifest_path)
-  declared <- if (file.exists(mf)) read_manifest(mf, root) else list()
+  declared <- if (file.exists(mf)) read_manifest(mf, root, context) else list()
   declared_ids <- vapply(declared, function(d) d$resource, "")
 
   standard_ids <- vapply(standard, function(d) d$resource, "")
@@ -324,7 +327,7 @@ assemble_descriptors <- function(root, context) {
              class = "projectData_ambiguous_discovery")
   }
 
-  for (d in claims) check_descriptor(d, root)
+  for (d in claims) check_descriptor(d, root, context)
   candidates <- c(standard[!standard_ids %in% declared_ids], claims)
   names(candidates) <- vapply(candidates, function(d) d$resource, "")
   # A manifest entry takes the place of the candidate it replaces.

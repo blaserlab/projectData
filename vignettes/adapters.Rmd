@@ -32,6 +32,33 @@ A descriptor is a list with `resource`, `loader`, `source` (relative path),
 `root`, `source` (resolved absolute path) and `work_dir`. Loader ids are
 namespaced (`"pkg::name"`); `projectData::` is reserved.
 
+### Context and validation lifecycle
+
+`context` is built by one helper for `validate` and `open`, so shared fields
+are identical: `collection`, `package`, `version`, `library`, `root` and
+`resource`. (During discovery `resource` is `NA`; in a standalone
+`data_manifest_validate()` `collection` is `NA`.) The only opening-only
+information is `paths` (resolved `source`, `work_dir`).
+
+`validate` runs when a collection is registered, if its loader is already
+registered, and again before **every uncached opening attempt**, against the
+loader selected for that attempt. Collections may therefore be registered
+while an optional loader is missing, and a loader that arrives later (by
+`data_loader_add()` or automatic adapter resolution on first access) is
+validated before it opens anything. A replacement loader is never covered by
+an earlier loader's validation. A rejection marks the resource `failed`
+without calling `open`; fix the problem and call `data_retry()`. Validators
+may inspect metadata and file paths only: do not restore the dataset or read
+backing matrices. Resources already `ready` are cached and not validated again.
+
+### Registering an adapter
+
+`data_loader_adapter()` is atomic. The declaration is checked before any
+loader is registered: every element must be a well-formed `data_loader()`,
+ids must be unique within the declaration, and no id may collide with the
+registry (unless `replace = TRUE`). If anything fails, the registry is
+unchanged. Checking never calls `discover`, `validate` or `open`.
+
 Rules that make adapters safe to use:
 
 * Installed files are read-only. Need a writable file? Declare

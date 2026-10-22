@@ -4,8 +4,7 @@ build_collection <- function(package, lib.loc, id, suffix, include) {
   if (!is.na(suffix) && !nzchar(suffix)) {
     pd_abort("`suffix` must be a non-empty string (use `primary` to keep bare names).")
   }
-  context <- list(collection = id, package = package, version = inst$version,
-                  library = inst$library, resource = NA_character_)
+  context <- loader_context(id, package, inst$version, inst$library, inst$root)
   descriptors <- assemble_descriptors(inst$root, context)
   if (!length(descriptors)) {
     pd_abort("Package '", package, "' (", inst$root, ") provides no inventoried data ",

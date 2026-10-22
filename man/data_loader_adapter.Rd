@@ -20,5 +20,10 @@ The registered ids, invisibly.
 Loads the adapter's namespace (without attaching it), calls its exported
 function \code{export} (which takes no arguments), and registers the returned
 \code{\link[=data_loader]{data_loader()}} or list of loaders. Nothing is installed automatically and
-no other packages are scanned.
+no other packages are scanned. The export is called once; its result is
+fully checked (every element is a valid loader, ids are unique within the
+declaration, and no id collides with the registry under the \code{replace}
+policy) before any loader is registered, so registration either succeeds
+completely or changes nothing. No discover, validate or open function is
+called while checking.
 }

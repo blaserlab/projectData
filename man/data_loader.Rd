@@ -50,8 +50,22 @@ A descriptor is a list with fields \code{resource} (id, required), \code{loader}
 root, or \code{NA}), \code{objects} (character vector of object names the resource
 produces, or \code{NULL} when unknown), \code{options} (named list), \code{title},
 \code{help_topic}, \code{recorded_class} (recorded, not observed; optional), and
-\code{adapter} (\code{list(package=, export=)}, set by manifests). \code{context} is a list
-with \code{collection}, \code{package}, \code{version}, \code{library}, \code{resource}.
+\code{adapter} (\code{list(package=, export=)}, set by manifests).
+
+\code{context} is a list built by one helper for validation and opening, so the
+shared fields are identical: \code{collection} (collection id), \code{package},
+\code{version}, \code{library} (the library holding the installed package), \code{root}
+(the installation root, the same path passed to \code{discover} and \code{validate})
+and \code{resource} (the resource id). During discovery \code{resource} is \code{NA}.
+During a standalone \code{\link[=data_manifest_validate]{data_manifest_validate()}} call \code{collection} is \code{NA}.
+The only information available solely at opening is the \code{paths} argument of
+\code{open} (resolved \code{source} and \code{work_dir}).
+
+\code{validate} runs without opening: when a collection is registered (if the
+loader is already registered) and again before every uncached opening
+attempt, against the loader selected for that attempt. It must only inspect
+metadata and file paths; it must not restore the dataset or read backing
+matrices.
 
 Loader ids must be namespaced (\code{"pkg::name"}); the \verb{projectData::} prefix is
 reserved for built-in loaders. Installed files are read-only: an adapter

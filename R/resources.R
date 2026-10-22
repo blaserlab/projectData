@@ -114,6 +114,26 @@ work_dir_for <- function(co, rec) {
   dir
 }
 
+resource_context <- function(co, rec) {
+  loader_context(co$id, co$package, co$version, co$library, co$root, rec$resource)
+}
+
+# Runs on every uncached opening attempt, against the loader selected for it,
+# so a replacement loader is never covered by an earlier loader's validation.
+# Not an opening state: the reader has not started, so nothing can be stuck.
+validate_before_open <- function(co, rec, loader) {
+  msg <- validate_with_loader(loader, rec$descriptor, co$root, resource_context(co, rec))
+  if (is.null(msg)) return(invisible())
+  rec$state <- "failed"
+  rec$error <- paste0("validation by loader '", loader$id, "' failed: ", msg)
+  stop(pd_condition(
+    paste0("Opening resource '", rec$resource, "' of collection '", co$id,
+           "' failed: ", rec$error, " The resource is marked 'failed'; correct the ",
+           "problem, then call data_retry(\"", co$id, "\", \"", rec$resource,
+           "\") to try again."),
+    c("projectData_validation_failed", "projectData_opening_failed"), "error"))
+}
+
 open_resource <- function(co, rec) {
   switch(
     rec$state,
@@ -128,6 +148,7 @@ open_resource <- function(co, rec) {
   )
   loader <- resolve_resource_loader(rec)
   check_installation_unchanged(co)
+  validate_before_open(co, rec, loader)
 
   cfg <- .state$config
   if (isTRUE(cfg$messages)) {
@@ -161,8 +182,7 @@ open_resource <- function(co, rec) {
     if (!is.na(rec$source) && is.na(paths$source)) {
       pd_abort("Source file '", rec$source, "' no longer exists below ", co$root, ".")
     }
-    context <- list(collection = co$id, package = co$package, version = co$version,
-                    library = co$library, resource = rec$resource)
+    context <- resource_context(co, rec)
     value <- loader$open(d, paths, context)
     if (!is.list(value) || (length(value) && (is.null(names(value)) || anyNA(names(value)) ||
                                               any(!nzchar(names(value))) || anyDuplicated(names(value))))) {
