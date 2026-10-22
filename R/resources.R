@@ -168,14 +168,15 @@ open_resource <- function(co, rec) {
                                               any(!nzchar(names(value))) || anyDuplicated(names(value))))) {
       pd_abort("Loader '", rec$loader, "' must return a uniquely named list of objects.")
     }
-    recorded <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
-    # A loader that returns without error but yields none of the recorded
-    # objects (e.g. utils::data() only warns on a missing dataset) did not open.
-    if (length(recorded) && !any(recorded %in% names(value))) {
+    # A loader that returns without error but yields nothing (e.g.
+    # utils::data() only warns on a missing dataset) did not open. Whether the
+    # outputs match the recorded names is a mapping question, checked on access
+    # (get_object) or by data_inspect(), not here.
+    if (!length(value)) {
+      recorded <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
       pd_abort("Loader '", rec$loader, "' produced none of the recorded object(s) ",
-               quote_names(recorded), "; it produced ",
-               if (length(value)) quote_names(names(value)) else "nothing", ".",
-               class = "projectData_mapping_error")
+               if (length(recorded)) quote_names(recorded) else "(unknown)",
+               "; it produced nothing.")
     }
     rec$value <- value
     rec$observed <- names(value)
@@ -202,10 +203,11 @@ get_object <- function(id, object) {
   rec <- co$resources[[row$resource[1]]]
   open_resource(co, rec)
   if (!object %in% names(rec$value)) {
-    pd_abort("Resource '", rec$resource, "' of collection '", id, "' opened but did not ",
-             "produce '", object, "'. It produced: ",
-             if (length(rec$value)) quote_names(names(rec$value)) else "nothing",
-             ". The recorded mapping is wrong; see data_inspect().",
+    pd_abort("Resource '", rec$resource, "' of collection '", id, "' opened, but the ",
+             "expected object '", object, "' is not among its outputs. Observed: ",
+             quote_names(names(rec$value)),
+             ". The recorded mapping is wrong; run data_inspect(\"", id, "\", \"",
+             rec$resource, "\") to correct it.",
              class = "projectData_mapping_error")
   }
   rec$value[[object]]

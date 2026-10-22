@@ -17,8 +17,13 @@
 #' `unavailable-loader`. `ready` means the loader returned; for `storage` =
 #' `disk-backed` this does not mean the data are in memory. `recorded_class`
 #' is whatever the creator declared; it is **recorded, not observed**.
-#' `mapping` becomes `verified` for a ready resource whose observed objects
-#' include all recorded ones.
+#' `mapping` is how the object name was determined: `index`, `declared`,
+#' `observed` or `unknown`. Once a resource is ready, each recorded name is
+#' checked individually against the objects the loader actually returned:
+#' `verified` if present, `mismatch` if absent (retrieval then fails with an
+#' error listing the observed names; see [data_inspect()] to correct it).
+#' Objects returned but not recorded are not listed until inspection, so a
+#' partly matching resource is never wholly verified by one matching name.
 #'
 #' `source` is the path of the resource's file relative to `root`, and it can be
 #' `NA`. That happens when the package index lists a dataset for which no file
@@ -58,7 +63,7 @@ catalog_for <- function(st, collection = NULL) {
     }, "")
     mapping <- o$confidence
     for (i in which(state == "ready" & !is.na(o$object))) {
-      if (o$object[i] %in% recs[[i]]$observed) mapping[i] <- "verified"
+      mapping[i] <- if (o$object[i] %in% recs[[i]]$observed) "verified" else "mismatch"
     }
     base <- data.frame(
       collection = co$id, package = co$package, version = co$version,

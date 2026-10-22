@@ -40,8 +40,13 @@ selected by \code{include}; \code{unmapped}: object unknown), \code{loader}, \co
 \code{unavailable-loader}. \code{ready} means the loader returned; for \code{storage} =
 \code{disk-backed} this does not mean the data are in memory. \code{recorded_class}
 is whatever the creator declared; it is \strong{recorded, not observed}.
-\code{mapping} becomes \code{verified} for a ready resource whose observed objects
-include all recorded ones.
+\code{mapping} is how the object name was determined: \code{index}, \code{declared},
+\code{observed} or \code{unknown}. Once a resource is ready, each recorded name is
+checked individually against the objects the loader actually returned:
+\code{verified} if present, \code{mismatch} if absent (retrieval then fails with an
+error listing the observed names; see \code{\link[=data_inspect]{data_inspect()}} to correct it).
+Objects returned but not recorded are not listed until inspection, so a
+partly matching resource is never wholly verified by one matching name.
 
 \code{source} is the path of the resource's file relative to \code{root}, and it can be
 \code{NA}. That happens when the package index lists a dataset for which no file

@@ -198,6 +198,20 @@ data_retry <- function(collection, resource = NULL) {
 #' loaded into an isolated environment; `data/*.R` scripts are **executed**.
 #' The opened resource is cached, so a later access does not read it again.
 #'
+#' The mapping is replaced even when none of the recorded names were produced
+#' (for example an index entry `example` for a file that actually holds
+#' `sample_metadata`) or only some were. Ordinary access ([data_get()]) stays
+#' strict and errors on an absent name, pointing here. Inspection only
+#' replaces the mapping after the loader succeeded: a genuine opening failure
+#' leaves the mapping untouched (and `data_retry()` applies). The new mapping
+#' is committed through the usual validated catalog update (if validation fails,
+#' nothing changes). A newly observed name that collides with another
+#' collection is handled by the normal conflict rules: it is `ambiguous` unless
+#' a primary, preference or suffix alias resolves it. Names
+#' that disappear from the mapping are no longer bound; names that appear are
+#' bound or aliased as for any other object. Help topics are carried over only
+#' for names that were already recorded.
+#'
 #' @param collection Collection id.
 #' @param resource Resource id(s); `NULL` means every resource whose mapping is
 #'   `unknown`.
