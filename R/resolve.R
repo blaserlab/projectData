@@ -9,11 +9,17 @@ empty_resolution <- function() {
              kind = character(), binding = character(), stringsAsFactors = FALSE)
 }
 
-# Metadata-only name resolution across all registered collections.
+# Registered collections are internal records; only those marked `attached`
+# are exposed through the facade and take part in bare-name resolution.
+attached_collections <- function(st) {
+  st$collections[vapply(st$collections, function(co) isTRUE(co$attached), NA)]
+}
+
+# Metadata-only name resolution across all attached collections.
 # Precedence for a contested bare name: explicit preference, then the primary
 # collection, otherwise "ambiguous". Suffix aliases must be globally unique.
 resolve_names <- function(st) {
-  rows <- lapply(st$collections, function(co) {
+  rows <- lapply(attached_collections(st), function(co) {
     o <- co$objects[co$objects$exposed & !is.na(co$objects$object), , drop = FALSE]
     if (!nrow(o)) return(NULL)
     r <- data.frame(name = o$object, collection = co$id, object = o$object,
@@ -67,7 +73,7 @@ ambiguity_message <- function(name, res) {
 validate_state <- function(cand) {
   ids <- names(cand$collections)
   if (anyDuplicated(ids)) pd_abort("Duplicate collection ids.")
-  if (!is.na(cand$primary) && !cand$primary %in% ids) {
+  if (!is.na(cand$primary) && !cand$primary %in% names(attached_collections(cand))) {
     pd_abort("Primary collection '", cand$primary, "' is not attached.")
   }
   res <- resolve_names(cand)
@@ -80,7 +86,7 @@ validate_state <- function(cand) {
                "data_prefer(\"", nm, "\", NULL) first.", class = "projectData_bad_preference")
     }
   }
-  if (length(ids) && identical(cand$facade$on_mask, "error")) {
+  if (length(attached_collections(cand)) && identical(cand$facade$on_mask, "error")) {
     m <- find_masks(planned_names(cand, res), cand$facade$env)
     if (nrow(m)) pd_abort(mask_message(m), class = "projectData_masking")
   }

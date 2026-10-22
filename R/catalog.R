@@ -9,8 +9,9 @@
 #' Columns: `collection`, `package`, `version`, `library`, `root`, `resource`
 #' (the loadable unit), `object`, `exposed_name`, `kind` (`original`/`alias`),
 #' `binding` (`bound`: the bare name resolves to this row; `not_bound`: lost to
-#' a preference or primary; `ambiguous`: unresolved conflict; `excluded`: not
-#' selected by `include`; `unmapped`: object unknown), `loader`, `source`,
+#' a preference or primary; `ambiguous`: unresolved conflict; `unattached`: the
+#' collection is registered, for example by [data_get()], but not attached;
+#' `excluded`: not selected by `include`; `unmapped`: object unknown), `loader`, `source`,
 #' `help_topic`, `title`, `mapping`, `state`, `storage`, `recorded_class`.
 #'
 #' `state` is one of `unopened`, `opening`, `ready`, `failed`,
@@ -39,7 +40,7 @@
 #' opens the help page of the *original* topic in the source package
 #' (aliases lead to the same topic); it is separate from inspection.
 #'
-#' @param collection Collection id(s); `NULL` means all attached.
+#' @param collection Collection id(s); `NULL` means all registered.
 #' @param name Original object name or exposed name.
 #' @return A `projectData_catalog` data frame; `data_help()` returns the help
 #'   object from [utils::help()].
@@ -75,6 +76,13 @@ catalog_for <- function(st, collection = NULL) {
       exposed = o$exposed, stringsAsFactors = FALSE, row.names = NULL
     )
     mine <- res[res$collection == co$id, , drop = FALSE]
+    if (!isTRUE(co$attached)) {
+      # Registered only (e.g. by data_get()): nothing is exposed by bare name.
+      u <- o[o$exposed & !is.na(o$object), , drop = FALSE]
+      mine <- data.frame(name = u$object, collection = rep(co$id, nrow(u)),
+                         object = u$object, kind = rep("original", nrow(u)),
+                         binding = rep("unattached", nrow(u)), stringsAsFactors = FALSE)
+    }
     m <- match(mine$object, base$object)
     named <- base[m, , drop = FALSE]
     named$exposed_name <- mine$name
@@ -174,6 +182,7 @@ data_query <- function(packages, lib.loc = NULL, id = packages, suffix = NULL,
   stopifnot(is.character(packages), length(packages) >= 1L)
   cand <- add_collections(snapshot(), packages, lib.loc, id, suffix, include,
                           replace = TRUE)
+  for (i in as.character(id)) cand$collections[[i]]$attached <- TRUE
   validate_state(cand)
   catalog_for(cand, as.character(id))
 }

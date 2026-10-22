@@ -25,7 +25,9 @@ primary is returned.}
 their result invisibly / a data frame.
 }
 \description{
-These apply to attached collections. The primary collection is the explicit, user-chosen winner for contested bare
+These apply to attached collections (registered collections that
+\code{\link[=data_get]{data_get()}} created without attaching them take no part in bare-name
+resolution). The primary collection is the explicit, user-chosen winner for contested bare
 names; there is no implicit winner based on registration or attachment
 order. A preference for a specific object overrides the primary. Neither
 reads data.

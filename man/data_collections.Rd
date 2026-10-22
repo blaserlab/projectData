@@ -2,13 +2,16 @@
 % Please edit documentation in R/register.R
 \name{data_collections}
 \alias{data_collections}
-\title{List attached collections}
+\title{List registered collections}
 \usage{
 data_collections()
 }
 \value{
-A data frame, one row per attached collection. No data are touched.
+A data frame, one row per registered collection, with \code{attached}
+telling whether its names are exposed on the search path. No data are
+touched.
 }
 \description{
-List attached collections
+Collections are registered automatically, either by \code{\link[=data_attach]{data_attach()}} (which
+also attaches them) or by \code{\link[=data_get]{data_get()}} with \code{package} (which does not).
 }

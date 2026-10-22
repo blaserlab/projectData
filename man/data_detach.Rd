@@ -7,7 +7,7 @@
 data_detach(collections = NULL)
 }
 \arguments{
-\item{collections}{Collection ids; \code{NULL} detaches everything.}
+\item{collections}{Registered collection ids; \code{NULL} detaches everything.}
 }
 \value{
 Invisibly, the detached ids.
@@ -15,8 +15,12 @@ Invisibly, the detached ids.
 \description{
 Removes collections (default: all) from the attached environment and forgets
 them, along with any preferences and primary designation that refer to them.
-When none remain, the environment is removed from the search path. Only the
-environment projectData created is touched. Objects you already hold, and the
+This covers collections that are only registered (for example by
+\code{data_get(package = )}) as well: their internal registration and cached
+references to opened resources are dropped, so the next access registers and
+opens them afresh. When no attached collection remains, the environment is
+removed from the search path. Only the environment projectData created is
+touched. Objects you already hold, and the
 backing files they use, are unaffected; nothing is deleted or closed. Work
 directories created by loaders stay in the session temporary directory.
 }

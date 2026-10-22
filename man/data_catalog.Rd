@@ -13,7 +13,7 @@ data_info(name, collection = NULL)
 data_help(name, collection = NULL)
 }
 \arguments{
-\item{collection}{Collection id(s); \code{NULL} means all attached.}
+\item{collection}{Collection id(s); \code{NULL} means all registered.}
 
 \item{name}{Original object name or exposed name.}
 }
@@ -32,8 +32,9 @@ contested name appears once per candidate collection.
 Columns: \code{collection}, \code{package}, \code{version}, \code{library}, \code{root}, \code{resource}
 (the loadable unit), \code{object}, \code{exposed_name}, \code{kind} (\code{original}/\code{alias}),
 \code{binding} (\code{bound}: the bare name resolves to this row; \code{not_bound}: lost to
-a preference or primary; \code{ambiguous}: unresolved conflict; \code{excluded}: not
-selected by \code{include}; \code{unmapped}: object unknown), \code{loader}, \code{source},
+a preference or primary; \code{ambiguous}: unresolved conflict; \code{unattached}: the
+collection is registered, for example by \code{\link[=data_get]{data_get()}}, but not attached;
+\code{excluded}: not selected by \code{include}; \code{unmapped}: object unknown), \code{loader}, \code{source},
 \code{help_topic}, \code{title}, \code{mapping}, \code{state}, \code{storage}, \code{recorded_class}.
 
 \code{state} is one of \code{unopened}, \code{opening}, \code{ready}, \code{failed},

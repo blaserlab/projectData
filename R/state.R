@@ -42,9 +42,10 @@ commit_state <- function(cand) {
 get_collection <- function(id, st = .state) {
   co <- st$collections[[id]]
   if (is.null(co)) {
-    pd_abort("No attached collection named '", id, "'. Attached: ",
+    pd_abort("No registered collection named '", id, "'. Registered: ",
              if (length(st$collections)) quote_names(names(st$collections)) else "none",
-             ". Use data_attach() first.", class = "projectData_unknown_collection")
+             ". Use data_attach(), or data_get() with `package`.",
+             class = "projectData_unknown_collection")
   }
   co
 }

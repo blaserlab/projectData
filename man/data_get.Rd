@@ -4,32 +4,59 @@
 \alias{data_get}
 \title{Get data objects explicitly}
 \usage{
-data_get(name, collection = NULL)
+data_get(name, collection = NULL, package = NULL, lib.loc = NULL)
 }
 \arguments{
 \item{name}{Object name(s) or alias(es).}
 
 \item{collection}{Optional collection id (recycled over \code{name}).}
+
+\item{package}{Optional installed package name (recycled over \code{name}).}
+
+\item{lib.loc}{Library directories searched when \code{package} has to be
+registered; checked against the installation of an existing registration.}
 }
 \value{
 The object, or a named list for several names.
 }
 \description{
-Returns objects without relying on bare names on the search path, which is
-the most robust form in scripts and functions. The collections must be
-attached with \code{\link[=data_attach]{data_attach()}}. With \code{collection}, \code{name} is an original
-object name in that collection (qualified access, which also reaches
-objects that lost a name conflict). Without it, \code{name} is resolved exactly as
-a bare name is, including suffix aliases, and an unresolved ambiguity is an
-error naming the candidates.
+Returns objects without exposing them on the search path, so it is the most
+robust form in scripts and functions, and plays the role for projectData that
+\code{package::object} plays for exported data. It never attaches anything and
+never changes an attached collection.
 }
 \details{
-Give several names to open several objects in one call, for example to open
-all large objects at the start of a batch job: the first-access messages
-then appear together, before the rest of the analysis. A single name returns
-the object; several names return a named list.
+\strong{Unqualified} (\code{package = NULL}, \code{collection = NULL}): \code{name} is resolved
+exactly as a bare name is among the attached collections, including suffix
+aliases, and an unresolved ambiguity is an error naming the candidates.
 
-Repeated and aliased access share one cached resource; the returned object is
-the shared reference, \strong{not} an independent copy. Modifying an environment
-or reference-semantics object affects every alias.
+\strong{By collection id}: with \code{collection}, \code{name} is an original object name in
+that registered collection (it also reaches objects that lost a name
+conflict).
+
+\strong{By package}: with \code{package}, the collection is registered automatically if
+necessary, from \code{lib.loc} (default \code{\link[=.libPaths]{.libPaths()}}), and \code{name} is an original
+object name in it. Registration reads package metadata only. Retrieval is
+independent of primary, preferences and suffixes used for attached access.
+If the package is already registered (attached or not) it is reused: the
+installation recorded then stays in force, and \code{lib.loc} is only checked
+against it, so a second installed copy is never chosen silently. If several
+collections come from the package, say which with \code{collection}; \code{collection}
+is also the id given to a newly registered collection (default: the package
+name).
+
+\code{data_get()} \strong{opens} the requested resource: it is not a metadata query
+(see \code{\link[=data_query]{data_query()}} and \code{\link[=data_catalog]{data_catalog()}} for those). Resources not requested
+stay unopened, but a resource that produces several objects loads all of
+them. Give several names to open several objects in one call; a single name
+returns the object, several return a named list.
+
+Explicit and attached access share one cached resource per collection,
+whichever happens first. The returned object is the shared reference, \strong{not}
+an independent copy. Registration created by \code{data_get()} persists for the
+session until \code{\link[=data_detach]{data_detach()}} forgets it.
+}
+\examples{
+# Retrieve one object from an installed package without attaching it
+head(data_get("mtcars", package = "datasets"))
 }

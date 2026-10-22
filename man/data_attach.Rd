@@ -57,6 +57,11 @@ same environment. Attachment is all-or-nothing: if any package fails
 validation (for example a suffix collision), nothing is attached.
 }
 \details{
+Attaching registers each package internally (metadata only) and exposes it.
+A package that \code{\link[=data_get]{data_get()}} already registered without attaching is reused,
+not inventoried again, and any resource it already opened stays cached. You
+never need to register anything yourself.
+
 An attached package is a \emph{collection} with an id (by default the package
 name). Use \code{id} to attach the same package twice, for example two installed
 versions from different libraries. Attaching an id that is already attached
@@ -118,5 +123,6 @@ attached, so an unqualified call can install cleanly and fail only here.
 }
 
 \seealso{
-\code{\link[=data_query]{data_query()}} to look at packages without attaching them.
+\code{\link[=data_query]{data_query()}} to look at packages without attaching them;
+\code{\link[=data_get]{data_get()}} to retrieve one object without attaching.
 }

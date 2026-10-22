@@ -112,6 +112,11 @@ data_masking <- function() {
 #' same environment. Attachment is all-or-nothing: if any package fails
 #' validation (for example a suffix collision), nothing is attached.
 #'
+#' Attaching registers each package internally (metadata only) and exposes it.
+#' A package that [data_get()] already registered without attaching is reused,
+#' not inventoried again, and any resource it already opened stays cached. You
+#' never need to register anything yourself.
+#'
 #' An attached package is a *collection* with an id (by default the package
 #' name). Use `id` to attach the same package twice, for example two installed
 #' versions from different libraries. Attaching an id that is already attached
@@ -177,7 +182,8 @@ data_masking <- function() {
 #' @param pos Search-path position.
 #' @param on_mask One of `"warn"`, `"error"`, `"ignore"`.
 #' @return Invisibly, the names now bound in the environment.
-#' @seealso [data_query()] to look at packages without attaching them.
+#' @seealso [data_query()] to look at packages without attaching them;
+#'   [data_get()] to retrieve one object without attaching.
 #' @export
 data_attach <- function(packages, lib.loc = NULL, id = packages,
                         suffix = NULL, include = NULL, primary = NULL,
@@ -191,12 +197,15 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
     pd_abort("`suffix` must have one element per package.")
   }
   cand <- snapshot()
-  existing <- id %in% names(cand$collections) & !replace &
-    is.null(lib.loc) & is.null(suffix) & is.null(include)
+  registered <- id %in% names(cand$collections)
+  # A registration that data_get() made without attaching may be rebuilt freely
+  # (its resource records are reused); only attached ids need `replace`.
+  unattached <- registered & !vapply(id, function(i) isTRUE(cand$collections[[i]]$attached), NA)
+  existing <- registered & !replace & is.null(lib.loc) & is.null(suffix) & is.null(include)
   for (i in which(existing)) {
     co <- get_collection(id[i], cand)
     if (!identical(co$package, packages[i])) {
-      pd_abort("Collection id '", id[i], "' is already attached from package '", co$package,
+      pd_abort("Collection id '", id[i], "' is already ", if (isTRUE(co$attached)) "attached" else "registered", " from package '", co$package,
                "', not '", packages[i], "'. Choose another `id`, or use replace = TRUE.")
     }
     check_installation_unchanged(co)
@@ -204,8 +213,9 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
   if (any(!existing)) {
     cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
                             if (is.null(suffix)) NULL else suffix[!existing],
-                            include, replace)
+                            include, replace | unattached[!existing])
   }
+  for (i in id) cand$collections[[i]]$attached <- TRUE
   if (!is.null(primary)) cand$primary <- primary
   f <- cand$facade
   if (is.na(facade_pos(f$env))) {
@@ -237,12 +247,16 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
 #'
 #' Removes collections (default: all) from the attached environment and forgets
 #' them, along with any preferences and primary designation that refer to them.
-#' When none remain, the environment is removed from the search path. Only the
-#' environment projectData created is touched. Objects you already hold, and the
+#' This covers collections that are only registered (for example by
+#' `data_get(package = )`) as well: their internal registration and cached
+#' references to opened resources are dropped, so the next access registers and
+#' opens them afresh. When no attached collection remains, the environment is
+#' removed from the search path. Only the environment projectData created is
+#' touched. Objects you already hold, and the
 #' backing files they use, are unaffected; nothing is deleted or closed. Work
 #' directories created by loaders stay in the session temporary directory.
 #'
-#' @param collections Collection ids; `NULL` detaches everything.
+#' @param collections Registered collection ids; `NULL` detaches everything.
 #' @return Invisibly, the detached ids.
 #' @export
 data_detach <- function(collections = NULL) {
@@ -255,7 +269,7 @@ data_detach <- function(collections = NULL) {
   if (cand$primary %in% ids) cand$primary <- NA_character_
   validate_state(cand)
   commit_state(cand)
-  if (!length(.state$collections) && !is.na(facade_pos(env))) {
+  if (!length(attached_collections(.state)) && !is.na(facade_pos(env))) {
     clear_env(env)
     do.call("detach", list(name = .state$facade$name, character.only = TRUE))
     .state$facade$env <- NULL

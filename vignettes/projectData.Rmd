@@ -122,6 +122,32 @@ appear together, before the rest of the analysis runs.
 str(data_get(c("meta_rna", "meta_prot")))
 ```
 
+## Getting one object without attaching
+
+Sometimes you want a single object and no new names on the search path, much as
+you would write `package::object` for an exported object. Give `data_get()` the
+`package`:
+
+```{r get-unattached}
+fixture_package(lib, "imagingData", "0.3.0", lazy = TRUE, datasets = list(
+  counts_img = list(counts_img = matrix(13:18, 2))
+))
+
+counts_img <- data_get("counts_img", package = "imagingData", lib.loc = lib)
+counts_img
+"imagingData" %in% data_collections()$package[data_collections()$attached]
+```
+
+There is nothing to register first. `data_get()` inventories the package if
+necessary (metadata only), then returns the object. It does not attach anything
+and does not change collections that are already attached. The name is looked up
+in that package itself, so preferences, primary collections and suffixes you set
+for attached access do not affect it.
+
+`data_get()` still **opens** the object you ask for; it is not a metadata query.
+Use `data_catalog()` or `data_query()` to look without opening. If you attach the
+package later, the object is not read again.
+
 ## First-access messages
 
 Before each resource is read for the first time, projectData prints a message
@@ -217,7 +243,9 @@ data_detach()
 
 `data_detach()` removes the attached collections and the environment projectData
 created, and forgets them. It does not delete files or affect objects you
-already hold. `data_detach("batch2")` removes just one collection.
+already hold. `data_detach("batch2")` removes just one collection. Packages you
+only reached through `data_get(package = )` are forgotten the same way (they
+were never on the search path); a later `data_get()` simply opens them again.
 
 ## What this does not do
 

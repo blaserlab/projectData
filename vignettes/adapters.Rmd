@@ -152,6 +152,39 @@ id, in this order:
 Distinct resources that expose the same object name are a separate error
 (`projectData_duplicate_object`); a manifest does not merge them.
 
+## Registration and attachment (developer notes)
+
+Users see one step, `data_attach()`, and one explicit accessor,
+`data_get(package = )`. Internally these are two separate operations on one
+registry:
+
+* **Registration** inventories an installed package and stores a collection
+  record: resolved installation root, version and identity, the resource and
+  object tables, and one resource record per loadable unit. It is metadata only
+  and is keyed by collection id (default: the package name), so a collection
+  exists at most once.
+* **Attachment** is a flag on the record (`attached`). Only attached collections
+  are bound in the `projectData:data` environment and take part in bare-name
+  resolution (primary, preferences, suffix aliases, ambiguity). A registered but
+  unattached collection is reachable only by `data_get(collection =)` or
+  `data_get(package =)`, and is shown in the catalog with binding `unattached`.
+
+Both entry points register automatically, so there is no user-facing
+registration function. `data_get(package = )` reuses an existing registration of
+that package (attached or not) and checks `lib.loc` against its recorded
+installation rather than re-resolving it, so a second installed copy is never
+picked silently. `data_attach()` reuses an unattached registration as it is;
+when new registration arguments are given for one (a suffix, `include`,
+`lib.loc`), it is rebuilt and the resource records of an identical installation
+are carried over, so nothing already opened is read twice. Attached ids still
+need `replace = TRUE`.
+
+Both paths use the same resource records, so there is exactly one load per
+resource whichever access happens first. `data_get()` registers without
+rebinding the facade. `data_detach()` is the single cleanup operation: it removes
+bindings and forgets the registration with its cached references, whether or not
+the collection was attached. Backing files are never deleted by it.
+
 ## Sketch: migrating the existing monocle3/BPCells (CDS) workflow
 
 This is a sketch, **not exercised** here: monocle3 and BPCells are not
