@@ -189,3 +189,68 @@ test_that("data_get() with several names opens each needed resource once", {
   expect_equal(names(vals), c("meta_b", "cds_main", "pair_x"))
   expect_equal(sort(n$log), sort(c("pdmain/meta", "pdmain/cds_main", "pdmain/pair")))
 })
+
+test_that("script-based datasets run once, on first access, in an isolated environment", {
+  local_clean_session()
+  marker <- tempfile("pd-marker-")
+  withr::local_options(pd.fixture.marker = marker)
+  withr::defer(unlink(marker))
+  lib <- fixture_library()
+  withr::defer(unlink(lib, recursive = TRUE))
+  fixture_package(lib, "pdscript", "0.1.0", lazy = FALSE,
+    scripts = list(treatment_groups = c(
+      # R CMD INSTALL also evaluates data scripts (to build the index), when the option is unset
+      "if (!is.null(getOption('pd.fixture.marker'))) cat('run\\n', file = getOption('pd.fixture.marker'), append = TRUE)",
+      "script_helper_levels <- c('control', 'low', 'high')",
+      "treatment_groups <- data.frame(",
+      "  id = c(1, 2, 3, 4),",
+      "  group = factor(c('control', 'low', 'high', 'low'), levels = script_helper_levels)",
+      ")"
+    )),
+    script_docs = list(treatment_groups = "treatment_groups"))
+  runs <- function() if (file.exists(marker)) length(readLines(marker)) else 0L
+  glob_before <- ls(globalenv(), all.names = TRUE)
+  n <- local_open_counter()
+
+  data_query("pdscript", lib.loc = lib)
+  data_attach("pdscript", lib.loc = lib)
+  expect_true("treatment_groups" %in% data_catalog()$object)
+  expect_equal(runs(), 0L)
+  expect_length(n$log, 0)
+
+  tg <- data_get("treatment_groups")
+  expect_equal(runs(), 1L)
+  expect_s3_class(tg, "data.frame")
+  expect_equal(nrow(tg), 4L)
+  expect_equal(levels(tg$group), c("control", "low", "high"))
+  expect_equal(n$log, "pdscript/treatment_groups")
+
+  expect_identical(data_get("treatment_groups"), tg)
+  expect_equal(runs(), 1L)
+  expect_length(n$log, 1)
+
+  expect_identical(ls(globalenv(), all.names = TRUE), glob_before)
+  expect_false(exists("treatment_groups", envir = globalenv(), inherits = FALSE))
+  expect_false(exists("script_helper_levels", envir = globalenv(), inherits = FALSE))
+})
+
+test_that("script datasets calling unqualified non-base functions fail clearly, and pkg:: works", {
+  local_clean_session()
+  lib <- fixture_library()
+  withr::defer(unlink(lib, recursive = TRUE))
+  # Installation evaluates scripts with default packages attached, so both install cleanly.
+  fixture_package(lib, "pdscriptfn", "0.1.0", lazy = FALSE,
+    scripts = list(
+      unqualified = "unqualified <- head(letters, 3)",
+      qualified = "qualified <- utils::head(letters, 3)"
+    ))
+  data_attach("pdscriptfn", lib.loc = lib)
+
+  expect_error(data_get("unqualified"), "could not find function \"head\"")
+  cat <- data_catalog()
+  expect_equal(cat$state[cat$object %in% "unqualified"], "failed")
+  expect_false(exists("unqualified", envir = globalenv(), inherits = FALSE))
+
+  expect_identical(data_get("qualified"), letters[1:3])
+  expect_equal(data_catalog()$state[data_catalog()$object %in% "qualified"], "ready")
+})

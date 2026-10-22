@@ -151,6 +151,17 @@ data_masking <- function() {
 #' `observed` (after [data_inspect()]) or `verified` (opened and matching).
 #' Unknown mappings are never guessed.
 #'
+#' @section Script datasets (`data/*.R`):
+#' Packages that ship non-lazy data scripts are supported. The script is run
+#' only when its resource is first opened, by [utils::data()], in a fresh
+#' environment whose parent is [baseenv()]. Base functions and `<-` are found;
+#' the global workspace and attached packages are not visible. Calls to
+#' functions from other packages, including `stats` and `utils`, must be
+#' qualified (`stats::rnorm()`, `utils::head()`), otherwise opening fails with
+#' "could not find function" and the resource is marked failed (see
+#' [data_retry()]). `R CMD INSTALL` evaluates such scripts with default packages
+#' attached, so an unqualified call can install cleanly and fail only here.
+#'
 #' @param packages Names of installed packages to attach.
 #' @param lib.loc Library directories searched, in order, for each package.
 #' @param id Collection ids (default: the package names).

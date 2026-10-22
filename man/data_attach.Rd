@@ -104,6 +104,19 @@ The catalog's \code{mapping} column is \code{index} (from install-time metadata)
 Unknown mappings are never guessed.
 }
 
+\section{Script datasets (\verb{data/*.R})}{
+
+Packages that ship non-lazy data scripts are supported. The script is run
+only when its resource is first opened, by \code{\link[utils:data]{utils::data()}}, in a fresh
+environment whose parent is \code{\link[=baseenv]{baseenv()}}. Base functions and \verb{<-} are found;
+the global workspace and attached packages are not visible. Calls to
+functions from other packages, including \code{stats} and \code{utils}, must be
+qualified (\code{stats::rnorm()}, \code{utils::head()}), otherwise opening fails with
+"could not find function" and the resource is marked failed (see
+\code{\link[=data_retry]{data_retry()}}). \verb{R CMD INSTALL} evaluates such scripts with default packages
+attached, so an unqualified call can install cleanly and fail only here.
+}
+
 \seealso{
 \code{\link[=data_query]{data_query()}} to look at packages without attaching them.
 }

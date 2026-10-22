@@ -180,7 +180,9 @@ register_builtin_loaders <- function() {
     data_loader(
       "projectData::dataset",
       open = function(descriptor, paths, context) {
-        env <- new.env(parent = emptyenv())
+        # baseenv() lets data/*.R scripts find base functions and `<-` without
+        # reaching the global workspace or attached packages.
+        env <- new.env(parent = baseenv())
         utils::data(list = descriptor$resource, package = context$package,
                     lib.loc = context$library, envir = env, overwrite = TRUE)
         mget(sort(ls(env, all.names = TRUE)), envir = env)
