@@ -2,7 +2,7 @@ test_that("manifest-described RDS objects load through the built-in loader", {
   local_clean_session()
   fx <- shared_fixtures()
   n <- local_open_counter()
-  data_register("pdref", lib.loc = fx$lib)
+  data_attach("pdref", lib.loc = fx$lib)
   cat <- data_catalog()
   r <- cat[cat$object %in% "ref_rds", ]
   expect_equal(r$mapping, "declared")
@@ -16,14 +16,14 @@ test_that("manifest-described RDS objects load through the built-in loader", {
 test_that("extdata files without a manifest entry or discovering loader are not exposed", {
   local_clean_session()
   fx <- shared_fixtures()
-  data_register("pdref", lib.loc = fx$lib)
+  data_attach("pdref", lib.loc = fx$lib)
   expect_false("mat" %in% data_catalog()$object)
 })
 
 test_that("missing adapters block only their own objects", {
   local_clean_session()
   fx <- shared_fixtures()
-  data_register("pdref", lib.loc = fx$lib)
+  data_attach("pdref", lib.loc = fx$lib)
   cat <- data_catalog()
   expect_equal(cat$state[cat$object %in% "fancy_obj"], "unavailable-loader")
   expect_error(data_get("fancy_obj"), "notinstalledfancypkg", class = "projectData_loader_unavailable")
@@ -53,7 +53,7 @@ test_that("removing a loader leaves ready objects usable and marks unopened ones
   fx <- shared_fixtures()
   data_loader_add(data_loader("test::flaky", open = function(descriptor, paths, context) list(flaky_obj = "ok")))
   data_loader_add(data_loader("test::reenter", open = function(descriptor, paths, context) list(reenter_obj = "ok2")))
-  data_register("pdmisc", lib.loc = fx$lib)
+  data_attach("pdmisc", lib.loc = fx$lib)
   expect_identical(data_get("flaky_obj"), "ok")
   data_loader_remove("test::flaky"); data_loader_remove("test::reenter")
   expect_identical(data_get("flaky_obj"), "ok")
@@ -67,7 +67,7 @@ test_that("a disk-backed backend is discovered, opened lazily from disk, and not
   fx <- shared_fixtures()
   n <- local_open_counter()
   data_loader_add(tinydisk_loader())
-  data_register("pdref", lib.loc = fx$lib)
+  data_attach("pdref", lib.loc = fx$lib)
   cat <- data_catalog()
   m <- cat[cat$object %in% "mat", ]
   expect_equal(c(m$storage, m$state, m$mapping), c("disk-backed", "unopened", "index"))
@@ -92,7 +92,7 @@ test_that("discovery precedence: manifest overrides, ambiguous discovery errors"
   other$id <- "tinydisk::second"
   data_loader_add(tinydisk_loader())
   data_loader_add(other)
-  expect_error(data_register("pdtm", lib.loc = lib), class = "projectData_ambiguous_discovery")
+  expect_error(data_attach("pdtm", lib.loc = lib), class = "projectData_ambiguous_discovery")
   expect_length(data_collections()$id, 0)
 })
 
@@ -104,7 +104,7 @@ test_that("a manifest entry replaces an adapter-discovered candidate", {
     manifest = c("ManifestVersion: 1", "", "Resource: a", "Loader: tinydisk::tinymat",
                  "Source: extdata/a.tinymat", "Objects: renamed_a"))
   data_loader_add(tinydisk_loader())
-  data_register("pdtm2", lib.loc = lib)
+  data_attach("pdtm2", lib.loc = lib)
   expect_equal(data_catalog()$object, "renamed_a")
   expect_equal(data_catalog()$mapping, "declared")
 })
@@ -117,11 +117,11 @@ test_that("work directories are distinct, writable copies survive source removal
     manifest = c("ManifestVersion: 1", "", "Resource: w", "Loader: tinydisk::tinymat",
                  "Source: extdata/w.tinymat", "Objects: w", "Options: work_copy=true"))
   data_loader_add(tinydisk_loader())
-  data_register("pdwork", lib.loc = lib)
+  data_attach("pdwork", lib.loc = lib)
   w <- data_get("w")
   expect_false(startsWith(w$path, normalizePath(lib, winslash = "/")))
   expect_true(grepl("projectData-work", w$path))
-  data_unregister("pdwork")
+  data_detach("pdwork")
   unlink(file.path(lib, "pdwork"), recursive = TRUE)
   expect_equal(w[2, 3], 6)
 })
@@ -132,8 +132,8 @@ test_that("relocating the library: backing files follow the registered location"
   data_loader_add(tinydisk_loader())
   moved <- fixture_library()
   file.copy(file.path(fx$lib, "pdref"), moved, recursive = TRUE)
-  data_register("pdref", lib.loc = fx$lib, id = "orig")
-  data_register("pdref", lib.loc = moved, id = "moved")
+  data_attach("pdref", lib.loc = fx$lib, id = "orig")
+  data_attach("pdref", lib.loc = moved, id = "moved")
   m <- data_get("mat", "moved")
   expect_true(startsWith(m$path, normalizePath(moved, winslash = "/")))
   expect_equal(m[1, 1], 1)
@@ -171,19 +171,21 @@ test_that("manifest validation rejects unsafe paths, bad versions and duplicates
 test_that("messages announce opening and distinguish local files from downloads", {
   local_clean_session()
   fx <- shared_fixtures()
-  data_register("pdref", lib.loc = fx$lib)
+  data_attach("pdref", lib.loc = fx$lib)
   data_config(messages = TRUE)
   expect_message(data_get("only_ref"), "nothing is downloaded")
   expect_no_message(data_get("only_ref"))
 })
 
-test_that("eager loading opens requested resources only", {
+test_that("data_get() with several names opens each needed resource once", {
   local_clean_session()
   fx <- shared_fixtures()
   n <- local_open_counter()
-  data_register("pdmain", lib.loc = fx$lib)
-  data_load(names = "meta_a")
+  data_attach("pdmain", lib.loc = fx$lib)
+  data_get("meta_a")
   expect_equal(n$log, "pdmain/meta")
-  data_load()
+  # several names in one call; the sibling meta_b shares the already-open resource
+  vals <- data_get(c("meta_b", "cds_main", "pair_x"))
+  expect_equal(names(vals), c("meta_b", "cds_main", "pair_x"))
   expect_equal(sort(n$log), sort(c("pdmain/meta", "pdmain/cds_main", "pdmain/pair")))
 })

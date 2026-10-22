@@ -4,7 +4,7 @@
 \alias{data_catalog}
 \alias{data_info}
 \alias{data_help}
-\title{Catalog, info, and help}
+\title{Catalog, info, and help for attached collections}
 \usage{
 data_catalog(collection = NULL)
 
@@ -13,7 +13,7 @@ data_info(name, collection = NULL)
 data_help(name, collection = NULL)
 }
 \arguments{
-\item{collection}{Collection id(s); \code{NULL} means all.}
+\item{collection}{Collection id(s); \code{NULL} means all attached.}
 
 \item{name}{Original object name or exposed name.}
 }

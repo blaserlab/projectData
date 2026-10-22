@@ -1,4 +1,4 @@
-#' Catalog, info, and help
+#' Catalog, info, and help for attached collections
 #'
 #' The catalog is a plain data frame (class `projectData_catalog`) built purely
 #' from recorded metadata and resource state. Building or printing it never
@@ -24,13 +24,14 @@
 #' opens the help page of the *original* topic in the source package
 #' (aliases lead to the same topic); it is separate from inspection.
 #'
-#' @param collection Collection id(s); `NULL` means all.
+#' @param collection Collection id(s); `NULL` means all attached.
 #' @param name Original object name or exposed name.
 #' @return A `projectData_catalog` data frame; `data_help()` returns the help
 #'   object from [utils::help()].
 #' @export
-data_catalog <- function(collection = NULL) {
-  st <- .state
+data_catalog <- function(collection = NULL) catalog_for(.state, collection)
+
+catalog_for <- function(st, collection = NULL) {
   res <- resolve_names(st)
   cols <- c("collection", "package", "version", "library", "root", "resource",
             "object", "exposed_name", "kind", "binding", "loader", "source",
@@ -130,4 +131,34 @@ data_help <- function(name, collection = NULL) {
   }
   # help() captures unevaluated arguments; do.call passes literal strings.
   do.call(utils::help, list(topic, package = hit$package[1], lib.loc = hit$library[1]))
+}
+
+#' Look inside data packages without attaching them
+#'
+#' Builds the same inventory and catalog that [data_attach()] would, and returns
+#' it, **without changing anything**: no environment is attached, nothing is
+#' remembered, and no data values are read. Use it to see what a package
+#' contains and which names would collide, including collisions with collections
+#' that are already attached. The arguments mean the same as in [data_attach()].
+#'
+#' The `binding` column shows what would happen on attachment, given any
+#' attached collections and current preferences. A package that would fail to
+#' attach (for example, a suffix collision) fails here with the same error. If
+#' an id is already attached, the result shows it as it would look after
+#' re-attaching with `replace = TRUE`.
+#'
+#' @inheritParams data_attach
+#' @return A `projectData_catalog` data frame for the queried packages; see
+#'   [data_catalog()] for the columns.
+#' @examples
+#' # A package that ships data, queried without attaching it
+#' head(data_query("datasets")[, c("collection", "object", "resource")])
+#' @export
+data_query <- function(packages, lib.loc = NULL, id = packages, suffix = NULL,
+                       include = NULL) {
+  stopifnot(is.character(packages), length(packages) >= 1L)
+  cand <- add_collections(snapshot(), packages, lib.loc, id, suffix, include,
+                          replace = TRUE)
+  validate_state(cand)
+  catalog_for(cand, as.character(id))
 }

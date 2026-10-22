@@ -53,8 +53,6 @@ local_clean_session <- function(env = parent.frame()) {
   old_cfg <- projectData:::.state$config
   withr::defer({
     suppressWarnings(try(projectData::data_detach(), silent = TRUE))
-    ids <- projectData::data_collections()$id
-    if (length(ids)) projectData::data_unregister(ids)
     for (id in setdiff(projectData::data_loaders()$id, projectData::data_loaders()$id[projectData::data_loaders()$builtin])) {
       projectData::data_loader_remove(id)
     }

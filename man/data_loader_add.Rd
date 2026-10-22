@@ -25,8 +25,8 @@ invisibly; \code{data_loaders()} returns a data frame.
 }
 \description{
 Loaders live in the current R session only. Registering a loader never runs
-it; discovery runs when a collection is registered with
-\code{\link[=data_register]{data_register()}}.
+it; discovery runs when a collection is attached with
+\code{\link[=data_attach]{data_attach()}} or \code{\link[=data_query]{data_query()}}.
 }
 \details{
 Replacing a loader (\code{replace = TRUE}) affects resources opened afterwards.

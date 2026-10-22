@@ -89,10 +89,21 @@ check_installation_unchanged <- function(co) {
     pd_abort("Installed package '", co$package, "' at ", co$root,
              " changed since collection '", co$id, "' was registered (registered: ",
              co$identity, "; now: ", now, "). Nothing was opened. Re-register with ",
-             "data_register(\"", co$package, "\", id = \"", co$id, "\", replace = TRUE). ",
+             "data_attach(\"", co$package, "\", id = \"", co$id, "\", replace = TRUE). ",
              "Objects already opened are unaffected.",
              class = "projectData_stale_installation")
   }
+}
+
+# On-disk size of a single source file, from stat() only. Skipped for
+# directories and for the shared lazy-load database, where it would mislead.
+source_size_text <- function(co, rec) {
+  if (is.na(rec$source) || identical(rec$source, "data/Rdata.rdb")) return("")
+  path <- file.path(co$root, rec$source)
+  info <- file.info(path)
+  if (is.na(info$size) || isTRUE(info$isdir)) return("")
+  paste0(" [", format(structure(info$size, class = "object_size"), units = "auto"),
+         " on disk: ", rec$source, "]")
 }
 
 work_dir_for <- function(co, rec) {
@@ -120,8 +131,11 @@ open_resource <- function(co, rec) {
 
   cfg <- .state$config
   if (isTRUE(cfg$messages)) {
+    objs <- co$objects$object[co$objects$resource == rec$resource & !is.na(co$objects$object)]
     message("projectData: opening resource '", rec$resource, "' of collection '",
-            co$id, "' (", co$package, " ", co$version, ") with ", rec$loader,
+            co$id, "' (", co$package, " ", co$version, ")",
+            if (length(objs)) paste0(" with object(s) ", paste(objs, collapse = ", ")) else "",
+            source_size_text(co, rec), ". Loader ", rec$loader,
             "; local installed files, nothing is downloaded",
             if (loader$storage == "disk-backed") "; disk-backed data are opened, not necessarily loaded into memory" else "",
             ".")

@@ -1,6 +1,6 @@
 two_collections <- function(suffix = c(NA, ".reference"), primary = NULL) {
   fx <- shared_fixtures()
-  data_register(c("pdmain", "pdref"), lib.loc = fx$lib, id = c("main", "reference"),
+  data_attach(c("pdmain", "pdref"), lib.loc = fx$lib, id = c("main", "reference"),
                 suffix = suffix, primary = primary)
 }
 
@@ -12,7 +12,6 @@ test_that("an unresolved conflict is visible in the catalog and fails before ret
   expect_equal(sort(cat$collection[cat$exposed_name %in% "cds_main" & cat$binding %in% "ambiguous"]),
                c("main", "reference"))
   expect_error(data_get("cds_main"), class = "projectData_ambiguous")
-  data_attach()
   expect_error(get("cds_main", envir = as.environment("projectData:data")),
                "ambiguous", class = "projectData_ambiguous")
   expect_identical(data_get("cds_main.reference"), "ref")
@@ -23,7 +22,6 @@ test_that("an unresolved conflict is visible in the catalog and fails before ret
 test_that("an explicit primary keeps bare names; alias and qualified access still work", {
   local_clean_session()
   two_collections(primary = "main")
-  data_attach()
   expect_identical(cds_main, "main-v1")
   expect_identical(cds_main.reference, "ref")
   cat <- data_catalog()
@@ -35,7 +33,6 @@ test_that("preferences override the primary and can be cleared", {
   local_clean_session()
   two_collections(primary = "main")
   data_prefer("cds_main", "reference")
-  data_attach()
   expect_identical(cds_main, "ref")
   data_prefer("cds_main", NULL)
   expect_identical(cds_main, "main-v1")
@@ -44,29 +41,26 @@ test_that("preferences override the primary and can be cleared", {
   expect_equal(nrow(data_preferences()), 0)
 })
 
-test_that("no winner is chosen by registration or attachment order", {
+test_that("no winner is chosen by attachment order", {
   local_clean_session()
   fx <- shared_fixtures()
-  data_register("pdref", lib.loc = fx$lib, id = "reference")
-  data_register("pdmain", lib.loc = fx$lib, id = "main")
-  data_attach("reference")
-  expect_identical(data_get("cds_main", "reference"), "ref")
-  data_attach("main")
+  data_attach("pdref", lib.loc = fx$lib, id = "reference")
+  expect_identical(data_get("cds_main"), "ref")
+  data_attach("pdmain", lib.loc = fx$lib, id = "main")
   expect_error(data_get("cds_main"), class = "projectData_ambiguous")
 })
 
 test_that("failed validation commits nothing", {
   local_clean_session()
   fx <- shared_fixtures()
-  data_register("pdmain", lib.loc = fx$lib, id = "main", suffix = ".x")
-  data_attach()
+  data_attach("pdmain", lib.loc = fx$lib, id = "main", suffix = ".x")
   before <- list(data_collections(), sort(ls(as.environment("projectData:data"))), data_catalog())
-  expect_error(data_register("pdref", lib.loc = fx$lib, id = "other", suffix = ".x"),
+  expect_error(data_attach("pdref", lib.loc = fx$lib, id = "other", suffix = ".x"),
                class = "projectData_name_collision")
-  expect_error(data_register("pdmain", lib.loc = fx$lib, id = "main"), "already registered")
-  expect_error(data_register("pdref", lib.loc = fx$lib, id = "o", include = "nope"), "include")
-  expect_error(data_register(c("pdref", "pdmain"), lib.loc = fx$lib, id = c("o", "o")), "unique")
-  expect_error(data_register("pdref", lib.loc = fx$lib, id = "o", primary = "ghost"), "not registered")
+  expect_error(data_attach("pdmain", lib.loc = fx$lib, id = "main"), "already attached")
+  expect_error(data_attach("pdref", lib.loc = fx$lib, id = "o", include = "nope"), "include")
+  expect_error(data_attach(c("pdref", "pdmain"), lib.loc = fx$lib, id = c("o", "o")), "unique")
+  expect_error(data_attach("pdref", lib.loc = fx$lib, id = "o", primary = "ghost"), "not attached")
   after <- list(data_collections(), sort(ls(as.environment("projectData:data"))), data_catalog())
   expect_identical(before, after)
 })
@@ -75,9 +69,9 @@ test_that("a bad alias against an existing collection is caught by name only", {
   local_clean_session()
   fx <- shared_fixtures()
   n <- local_open_counter()
-  data_register("pdmain", lib.loc = fx$lib, id = "main")
+  data_attach("pdmain", lib.loc = fx$lib, id = "main")
   # suffix makes meta_a + "" impossible; an alias equal to an existing name fails
-  expect_error(data_register("pdmain", lib.loc = fx$lib, id = "again", suffix = ""),
+  expect_error(data_attach("pdmain", lib.loc = fx$lib, id = "again", suffix = ""),
                "non-empty")
   expect_length(n$log, 0)
 })
@@ -86,10 +80,9 @@ test_that("include restricts exposure, and siblings share the resource", {
   local_clean_session()
   fx <- shared_fixtures()
   n <- local_open_counter()
-  data_register("pdmain", lib.loc = fx$lib, include = "pair_x")
+  data_attach("pdmain", lib.loc = fx$lib, include = "pair_x")
   cat <- data_catalog()
   expect_equal(cat$binding[cat$object %in% "pair_y"], "excluded")
-  data_attach()
   expect_false("pair_y" %in% ls(as.environment("projectData:data")))
   expect_identical(pair_x, "x")
   expect_error(data_get("pair_y"), class = "projectData_not_found")
@@ -101,6 +94,6 @@ test_that("reserved names cannot be exposed", {
   fx <- shared_fixtures()
   tmp <- fixture_library()
   fixture_package(tmp, "pdbad", lazy = TRUE, datasets = list(res = list(.Random.seed = 1)), documented = list(res = character()))
-  expect_error(data_register("pdbad", lib.loc = tmp), class = "projectData_reserved_name")
+  expect_error(data_attach("pdbad", lib.loc = tmp), class = "projectData_reserved_name")
   expect_equal(nrow(data_collections()), 0)
 })

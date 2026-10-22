@@ -25,55 +25,7 @@ build_collection <- function(package, lib.loc, id, suffix, include) {
                                vapply(descriptors, function(d) d$resource, ""))
   list(id = id, package = package, version = inst$version, identity = inst$identity,
        library = inst$library, root = inst$root, suffix = suffix, include = include,
-       resources = resources, objects = objects,
-       env = new.env(parent = emptyenv()))
-}
-
-#' Register installed data collections
-#'
-#' Builds an inventory of each package's data and records it in the session.
-#' **No data values are read**: inventory uses the package's installed data
-#' index, the lazy-load name map, an optional manifest, and discovery by
-#' loaders you have registered. Registration never attaches anything, and it
-#' is atomic: if any collection fails validation, nothing changes.
-#'
-#' The installed copy is resolved once, here, from `lib.loc` (default
-#' [.libPaths()]), and the root, library, version and build identity are
-#' recorded. Later changes to [.libPaths()] cannot redirect a pending read.
-#' If the installed package is replaced in place before a resource is opened,
-#' opening fails with an informative error and the collection must be
-#' re-registered with `replace = TRUE`; objects already opened are unaffected.
-#'
-#' @section Selective registration:
-#' `include` limits which objects are exposed (by object or resource name).
-#' Opening one object loads its whole resource, so sibling objects from the
-#' same resource are opened (and cached) together even if not exposed.
-#'
-#' @section Mapping completeness:
-#' The catalog's `mapping` column is `index` (from install-time metadata),
-#' `declared` (manifest), `unknown` (resource exists, objects not known), or
-#' `observed` (after [data_inspect()]). Unknown mappings are never guessed.
-#'
-#' @param packages Package names.
-#' @param lib.loc Library directories searched, in order, for each package.
-#' @param id Collection ids (default: package names).
-#' @param suffix `NULL` or one suffix per package (`NA` for none). Exposes each
-#'   object also as `<object><suffix>`, e.g. `cds_main.reference`.
-#' @param include `NULL`, or a named list (names are collection ids) of
-#'   object/resource names to expose. A character vector is accepted when
-#'   registering one package.
-#' @param primary `NULL` or the id of the collection whose objects keep bare
-#'   names when contested. Equivalent to calling [data_primary()].
-#' @param replace Replace collections that are already registered.
-#' @return The collection ids, invisibly.
-#' @export
-data_register <- function(packages, lib.loc = NULL, id = packages, suffix = NULL,
-                          include = NULL, primary = NULL, replace = FALSE) {
-  cand <- add_collections(snapshot(), packages, lib.loc, id, suffix, include, replace)
-  if (!is.null(primary)) cand$primary <- primary
-  validate_state(cand)
-  commit_state(cand)
-  invisible(as.character(id))
+       resources = resources, objects = objects)
 }
 
 # Builds collections and adds them to a candidate state; nothing is committed.
@@ -90,8 +42,8 @@ add_collections <- function(cand, packages, lib.loc, id, suffix, include, replac
   }
   taken <- intersect(id, names(cand$collections))
   if (length(taken) && !replace) {
-    pd_abort("Collection(s) already registered: ", quote_names(taken),
-             ". Use replace = TRUE or data_unregister() first.")
+    pd_abort("Collection(s) already attached: ", quote_names(taken),
+             ". Use replace = TRUE or data_detach() first.")
   }
   for (i in seq_len(n)) {
     cand$collections[[id[i]]] <- build_collection(packages[i], lib.loc, id[i],
@@ -100,35 +52,8 @@ add_collections <- function(cand, packages, lib.loc, id, suffix, include, replac
   cand
 }
 
-#' Unregister collections
-#'
-#' Removes the registration, its per-collection environment, its facade
-#' bindings, and preferences or the primary designation that refer to it.
-#' It does not delete files, close resources, or invalidate objects you
-#' already hold. Work directories created by loaders are left in place (they
-#' live in the session temporary directory).
-#'
-#' @param collections Collection ids.
-#' @return The ids, invisibly.
-#' @export
-data_unregister <- function(collections) {
-  cand <- snapshot()
-  for (id in collections) get_collection(id)
-  for (id in collections) {
-    clear_env(cand$collections[[id]]$env)
-    cand$collections[[id]] <- NULL
-  }
-  cand$preferences <- cand$preferences[!cand$preferences %in% collections]
-  if (cand$primary %in% collections) cand$primary <- NA_character_
-  cand$attached <- setdiff(cand$attached, collections)
-  validate_state(cand)
-  commit_state(cand)
-  if (!length(.state$attached) && !is.na(facade_pos(.state$facade$env))) data_detach()
-  invisible(collections)
-}
-
-#' List registered collections
-#' @return A data frame, one row per collection. No data are touched.
+#' List attached collections
+#' @return A data frame, one row per attached collection. No data are touched.
 #' @export
 data_collections <- function() {
   cs <- .state$collections
@@ -139,7 +64,6 @@ data_collections <- function() {
     library = vapply(cs, function(x) x$library, ""),
     primary = names(cs) %in% .state$primary,
     suffix = vapply(cs, function(x) x$suffix, ""),
-    attached = names(cs) %in% .state$attached,
     resources = vapply(cs, function(x) length(x$resources), 1L),
     row.names = NULL, stringsAsFactors = FALSE
   )
@@ -147,7 +71,7 @@ data_collections <- function() {
 
 #' Primary collection and per-object preferences
 #'
-#' The primary collection is the explicit, user-chosen winner for contested bare
+#' These apply to attached collections. The primary collection is the explicit, user-chosen winner for contested bare
 #' names; there is no implicit winner based on registration or attachment
 #' order. A preference for a specific object overrides the primary. Neither
 #' reads data.
@@ -193,69 +117,61 @@ data_preferences <- function() {
 
 # Access ---------------------------------------------------------------------
 
-#' Explicit access to data
+#' Get data objects explicitly
 #'
-#' `data_get()` returns an object without the facade. With `collection`, `name`
-#' is an original object name in that collection (qualified access). Without
-#' it, `name` is resolved with the same rules as the facade (including suffix
-#' aliases) and an unresolved ambiguity is an error naming the candidates.
-#' `data_env()` returns the per-collection environment: active bindings for the
-#' collection's exposed objects under their original names.
+#' Returns objects without relying on bare names on the search path, which is
+#' the most robust form in scripts and functions. The collections must be
+#' attached with [data_attach()]. With `collection`, `name` is an original
+#' object name in that collection (qualified access, which also reaches
+#' objects that lost a name conflict). Without it, `name` is resolved exactly as
+#' a bare name is, including suffix aliases, and an unresolved ambiguity is an
+#' error naming the candidates.
+#'
+#' Give several names to open several objects in one call, for example to open
+#' all large objects at the start of a batch job: the first-access messages
+#' then appear together, before the rest of the analysis. A single name returns
+#' the object; several names return a named list.
 #'
 #' Repeated and aliased access share one cached resource; the returned object is
 #' the shared reference, **not** an independent copy. Modifying an environment
 #' or reference-semantics object affects every alias.
 #'
-#' @param name Object name or alias.
-#' @param collection Optional collection id.
-#' @param id Collection id for `data_env()`.
-#' @return The data object, or an environment.
+#' @param name Object name(s) or alias(es).
+#' @param collection Optional collection id (recycled over `name`).
+#' @return The object, or a named list for several names.
 #' @export
 data_get <- function(name, collection = NULL) {
-  stopifnot(is_scalar_string(name))
+  stopifnot(is.character(name), length(name) >= 1L, !anyNA(name))
+  collection <- if (is.null(collection)) rep(NA_character_, length(name)) else
+    rep_len(collection, length(name))
   res <- resolve_names(.state)
-  if (!is.null(collection)) {
+  vals <- lapply(seq_along(name), function(i) get_one(name[i], collection[i], res))
+  if (length(name) == 1L) vals[[1L]] else stats::setNames(vals, name)
+}
+
+get_one <- function(name, collection, res) {
+  if (!is.na(collection)) {
     co <- get_collection(collection)
     o <- co$objects[co$objects$exposed & !is.na(co$objects$object) & co$objects$object == name, ]
     if (!nrow(o)) pd_abort("Collection '", collection, "' does not expose an object '", name, "'.")
     return(get_object(collection, name))
   }
   hit <- res[res$name == name, , drop = FALSE]
-  if (!nrow(hit)) pd_abort("No registered object named '", name, "'.", class = "projectData_not_found")
+  if (!nrow(hit)) pd_abort("No attached object named '", name, "'.", class = "projectData_not_found")
   if (any(hit$binding == "ambiguous")) pd_abort(ambiguity_message(name, res), class = "projectData_ambiguous")
   w <- hit[hit$binding == "bound", , drop = FALSE]
   get_object(w$collection[1], w$object[1])
 }
 
-#' @rdname data_get
-#' @export
-data_env <- function(id) get_collection(id)$env
-
-#' Eagerly open resources, and retry failed ones
+#' Retry a failed resource
 #'
-#' `data_load()` opens the resources behind the selected objects (or every
-#' resource of the selected collections) now, for predictable batch use. It
-#' may use a lot of memory or time for large data. `data_retry()` resets
-#' `failed` resources to `unopened` so that the next access tries again.
+#' Resets `failed` resources to `unopened` so that the next access tries
+#' again. A failure is otherwise sticky, so a broken backing file is not
+#' re-read on every access.
 #'
-#' @param collection Collection id(s); `NULL` means all.
-#' @param names Optional object names to restrict to.
+#' @param collection Collection id.
 #' @param resource Resource id(s); `NULL` means all failed resources.
-#' @return `data_load()` returns the catalog rows for the opened resources
-#'   (invisibly); `data_retry()` returns the reset resource ids invisibly.
-#' @export
-data_load <- function(collection = NULL, names = NULL) {
-  ids <- collection %||% names(.state$collections)
-  for (id in ids) {
-    co <- get_collection(id)
-    o <- co$objects
-    res <- if (is.null(names)) names(co$resources) else unique(o$resource[o$object %in% names])
-    for (r in res) open_resource(co, co$resources[[r]])
-  }
-  invisible(data_catalog(ids))
-}
-
-#' @rdname data_load
+#' @return The reset resource ids, invisibly.
 #' @export
 data_retry <- function(collection, resource = NULL) {
   co <- get_collection(collection)

@@ -81,8 +81,8 @@ check_loader <- function(loader) {
 #' Register, replace, remove, and list loaders
 #'
 #' Loaders live in the current R session only. Registering a loader never runs
-#' it; discovery runs when a collection is registered with
-#' [data_register()].
+#' it; discovery runs when a collection is attached with
+#' [data_attach()] or [data_query()].
 #'
 #' Replacing a loader (`replace = TRUE`) affects resources opened afterwards.
 #' Resources that are already `ready` keep their cached objects. Removing a

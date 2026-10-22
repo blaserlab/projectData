@@ -68,10 +68,7 @@ validate_state <- function(cand) {
   ids <- names(cand$collections)
   if (anyDuplicated(ids)) pd_abort("Duplicate collection ids.")
   if (!is.na(cand$primary) && !cand$primary %in% ids) {
-    pd_abort("Primary collection '", cand$primary, "' is not registered.")
-  }
-  if (length(setdiff(cand$attached, ids))) {
-    pd_abort("Attached collection(s) not registered: ", quote_names(setdiff(cand$attached, ids)), ".")
+    pd_abort("Primary collection '", cand$primary, "' is not attached.")
   }
   res <- resolve_names(cand)
   for (nm in names(cand$preferences)) {
@@ -83,7 +80,7 @@ validate_state <- function(cand) {
                "data_prefer(\"", nm, "\", NULL) first.", class = "projectData_bad_preference")
     }
   }
-  if (length(cand$attached) && identical(cand$facade$on_mask, "error")) {
+  if (length(ids) && identical(cand$facade$on_mask, "error")) {
     m <- find_masks(planned_names(cand, res), cand$facade$env)
     if (nrow(m)) pd_abort(mask_message(m), class = "projectData_masking")
   }

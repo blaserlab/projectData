@@ -25,7 +25,7 @@ primary is returned.}
 their result invisibly / a data frame.
 }
 \description{
-The primary collection is the explicit, user-chosen winner for contested bare
+These apply to attached collections. The primary collection is the explicit, user-chosen winner for contested bare
 names; there is no implicit winner based on registration or attachment
 order. A preference for a specific object overrides the primary. Neither
 reads data.

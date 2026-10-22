@@ -1,10 +1,11 @@
 # projectData
 
-projectData registers installed data packages ("collections") for a session
-without reading their data, exposes objects through deferred bindings, resolves
-name conflicts through explicit choices (a primary collection, per-object
-preferences, optional suffix aliases), records provenance, and provides a
-loader interface for resources that need format-specific restoration.
+projectData attaches installed data packages ("collections") in a session
+without reading their data, exposes objects through deferred bindings that are
+read on first use (with a message beforehand), resolves name conflicts through
+explicit choices (a primary collection, per-object preferences, optional suffix
+aliases), records provenance, and provides a loader interface for resources that
+need format-specific restoration.
 
 Status: development version, not submitted to CRAN. Author, maintainer and
 license details in `DESCRIPTION` are placeholders pending confirmation.
@@ -14,17 +15,19 @@ license details in `DESCRIPTION` are placeholders pending confirmation.
 ```r
 library(projectData)
 data_attach(c("rnaseqData", "proteinData"))  # inventory + attach; no data read
-counts_rna                                   # opened on first use
+counts_rna                                   # message, then opened on first use
 data_catalog()                               # metadata only
+data_get(c("counts_rna", "meta_rna"))        # explicit access, several at once
 ```
 
 If two attached packages define the same name, resolve it with
 `data_prefer()`, `data_primary()` or a `suffix`, or use
-`data_get(name, collection = )`. `data_register()` builds the inventory without
-attaching, for inspecting a package first.
+`data_get(name, collection = )`. `data_query()` shows what packages contain and
+which names would collide, without attaching or remembering anything.
+`data_detach()` removes collections and forgets them.
 
 See `vignette("projectData")` and `vignette("adapters")`. Installation of data
-packages (including from tarballs) is separate from registration.
+packages (including from tarballs) is separate from attaching them.
 
 ## Scope and limits
 

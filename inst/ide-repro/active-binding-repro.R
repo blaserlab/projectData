@@ -1,8 +1,8 @@
 # Manual reproduction: does RStudio force projectData's deferred bindings?
 #
-# Run this script line by line in an interactive RStudio session. It registers
-# the always-installed 'datasets' package (no data are read at registration),
-# attaches the facade, and logs every time projectData actually opens a
+# Run this script line by line in an interactive RStudio session. It attaches
+# the always-installed 'datasets' package (no data are read when attaching),
+# and logs every time projectData actually opens a
 # resource. Compare the log after each IDE action.
 #
 # projectData makes NO claim to prevent IDE-induced loading. Active bindings
@@ -10,6 +10,10 @@
 # object previews. If you see log lines you did not trigger, that is the IDE.
 
 library(projectData)
+
+# Remember the current settings; the cleanup at the end restores them, so the
+# first-access messages come back after the reproduction.
+old_config <- data_config()
 
 log_file <- file.path(tempdir(), "projectData-open.log")
 unlink(log_file)
@@ -21,14 +25,13 @@ data_config(
   }
 )
 
-data_register("datasets", include = c("mtcars", "iris"))
-data_attach()
+data_attach("datasets", include = c("mtcars", "iris"), on_mask = "ignore")
 
 show_log <- function() {
   if (file.exists(log_file)) cat(readLines(log_file), sep = "\n") else cat("(no opens logged)\n")
 }
 
-# Step 1: expect "(no opens logged)". Registration and attachment read nothing.
+# Step 1: expect "(no opens logged)". Attaching reads nothing.
 show_log()
 
 # Step 2: in the console type `mtc` and press Tab (completion), then `mtcars$`
@@ -39,11 +42,11 @@ show_log()
 # environment drop-down. Run show_log() again.
 # show_log()
 
-# Step 4: explicit access never depends on the IDE. This is the robust option
-# for scripts: no attachment, no active binding on the search path.
+# Step 4: explicit access does not depend on what the IDE evaluates.
 x <- data_get("mtcars")
 show_log()
 
 # Clean up
 data_detach()
-data_unregister("datasets")
+data_config(messages = old_config$messages, on_open = old_config$on_open)
+

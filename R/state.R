@@ -2,13 +2,12 @@
 # nothing but the built-in loaders and never touches user data or options.
 .state <- new.env(parent = emptyenv())
 
-state_fields <- c("collections", "preferences", "primary", "attached", "facade")
+state_fields <- c("collections", "preferences", "primary", "facade")
 
 reset_state <- function() {
   .state$collections <- list()
   .state$preferences <- character()
   .state$primary <- NA_character_
-  .state$attached <- character()
   .state$facade <- list(name = "projectData:data", pos = 2L,
                         on_mask = "warn", env = NULL)
   .state$loaders <- list()
@@ -43,18 +42,23 @@ commit_state <- function(cand) {
 get_collection <- function(id, st = .state) {
   co <- st$collections[[id]]
   if (is.null(co)) {
-    pd_abort("No collection named '", id, "' is registered. Registered: ",
+    pd_abort("No attached collection named '", id, "'. Attached: ",
              if (length(st$collections)) quote_names(names(st$collections)) else "none",
-             ".", class = "projectData_unknown_collection")
+             ". Use data_attach() first.", class = "projectData_unknown_collection")
   }
   co
 }
 
 #' Configure projectData session behavior
 #'
-#' @param messages Logical. Emit a message the first time a resource is
-#'   opened. The message names the object, collection, and loader, and states
-#'   that local installed files are used (nothing is downloaded).
+#' With no arguments, `data_config()` just returns the current settings.
+#'
+#' @param messages Logical (default `TRUE`). Emit a message the first time a
+#'   resource is opened, before any data are read. It names the objects, the
+#'   collection and loader, gives the on-disk size of a single source file when
+#'   there is one, and states that local installed files are used (nothing is
+#'   downloaded). Turn it off with `data_config(messages = FALSE)`; the setting
+#'   lasts for the session.
 #' @param on_open Optional function called with a list (`collection`,
 #'   `resource`, `package`, `loader`, `root`) immediately before a loader's
 #'   `open` function runs. Useful for logging and for counting reads in tests.

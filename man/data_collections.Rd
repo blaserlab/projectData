@@ -2,13 +2,13 @@
 % Please edit documentation in R/register.R
 \name{data_collections}
 \alias{data_collections}
-\title{List registered collections}
+\title{List attached collections}
 \usage{
 data_collections()
 }
 \value{
-A data frame, one row per collection. No data are touched.
+A data frame, one row per attached collection. No data are touched.
 }
 \description{
-List registered collections
+List attached collections
 }

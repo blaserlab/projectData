@@ -6,11 +6,8 @@
 # Both can be forced by IDE completion or previews; see the IDE reproduction.
 
 plan_bindings <- function(st, res = resolve_names(st)) {
-  att <- st$attached
-  bound <- res[res$binding == "bound" & res$collection %in% att, , drop = FALSE]
-  amb_names <- unique(res$name[res$binding == "ambiguous" & res$collection %in% att])
-  amb <- res[res$binding == "ambiguous" & res$name %in% amb_names, , drop = FALSE]
-  list(bound = bound, ambiguous = amb)
+  list(bound = res[res$binding == "bound", , drop = FALSE],
+       ambiguous = res[res$binding == "ambiguous", , drop = FALSE])
 }
 
 planned_names <- function(st, res = resolve_names(st)) {
@@ -40,17 +37,7 @@ clear_env <- function(env) {
   rm(list = ls(env, all.names = TRUE), envir = env)
 }
 
-sync_all <- function() {
-  res <- resolve_names(.state)
-  for (co in .state$collections) {
-    clear_env(co$env)
-    o <- co$objects[co$objects$exposed & !is.na(co$objects$object), , drop = FALSE]
-    for (nm in o$object) {
-      makeActiveBinding(nm, object_binding(co$id, nm, nm), co$env)
-    }
-  }
-  sync_facade(res)
-}
+sync_all <- function() sync_facade(resolve_names(.state))
 
 facade_pos <- function(env) {
   if (is.null(env)) return(NA_integer_)
@@ -115,73 +102,98 @@ data_masking <- function() {
 
 #' Attach data packages
 #'
-#' `data_attach()` is the normal way to make data available. Given package
-#' names it registers any that are not yet registered (with the same arguments
-#' and the same atomic validation as [data_register()]) and then places one
-#' environment, by default named `"projectData:data"`, on the search path at
-#' `pos`, exposing the objects as bare names through deferred active bindings.
-#' Nothing is read until you use an object. Nothing is attached unless you call
-#' this function. Call it again to attach more packages; later calls add to the
-#' same environment.
+#' `data_attach()` is how data become available. Given the names of installed
+#' data packages, it inventories each one (reading package metadata only, never
+#' data values) and puts its objects, by their own names, in one environment,
+#' by default named `"projectData:data"`, placed on the search path at `pos`.
+#' The objects are deferred active bindings: each is read the first time you use
+#' it, with a message first (see [data_config()]). Nothing is attached unless
+#' you call this function. Call it again to attach more packages; they join the
+#' same environment. Attachment is all-or-nothing: if any package fails
+#' validation (for example a suffix collision), nothing is attached.
 #'
-#' Each element of `packages` is either a package name to register, or the id
-#' of a collection that is already registered (for example one inspected with
-#' [data_register()]), which is simply attached. If you pass registration
-#' arguments (`lib.loc`, `suffix`, `include`) for an id that is already
-#' registered you must also give `replace = TRUE`. An already registered
-#' collection whose installed package has changed since registration is
-#' reported as an error and must be re-registered with `replace = TRUE`.
-#' With `packages = NULL`, all registered collections are attached.
+#' An attached package is a *collection* with an id (by default the package
+#' name). Use `id` to attach the same package twice, for example two installed
+#' versions from different libraries. Attaching an id that is already attached
+#' from the same package does nothing, unless the installed package has changed
+#' since, which is an error asking for `replace = TRUE`. Registration arguments
+#' (`lib.loc`, `suffix`, `include`) for an id that is already attached also need
+#' `replace = TRUE`.
 #'
+#' The installed copy is resolved once, here, from `lib.loc` (default
+#' [.libPaths()]); later changes to [.libPaths()] cannot redirect a pending
+#' read. If the installed package is replaced in place before an object is
+#' opened, opening fails informatively and you re-attach with `replace = TRUE`;
+#' objects already opened are unaffected.
+#'
+#' @section Name conflicts:
 #' Name resolution is metadata-only. The bare name of an object that exists in
-#' several collections is bound only if you designated a primary collection
-#' ([data_primary()]) or a preference ([data_prefer()]); otherwise it is bound
-#' to an error that names the candidates. Suffix aliases always resolve.
+#' several attached collections is bound only if you designated a primary
+#' collection ([data_primary()]) or a preference ([data_prefer()]); otherwise it
+#' is bound to an error naming the candidates. Attaching still succeeds, and the
+#' ambiguity shows in [data_catalog()]. Suffix aliases always resolve and must be
+#' unique.
 #'
-#' Objects in `.GlobalEnv` shadow the facade (it sits after `.GlobalEnv`) and
-#' are never touched. `on_mask` controls what happens when exposed names also
-#' exist elsewhere on the search path: `"warn"` (default), `"error"` (checked
-#' before anything changes) or `"ignore"`.
+#' @section Masking:
+#' Objects in `.GlobalEnv` shadow the attached environment (it sits after
+#' `.GlobalEnv`) and are never touched. `on_mask` controls what happens when
+#' exposed names also exist elsewhere on the search path: `"warn"` (default),
+#' `"error"` (checked before anything changes) or `"ignore"`.
 #'
-#' `data_detach()` removes collections from the facade, or the whole facade when
-#' `collections` is `NULL`. It only removes the environment projectData
-#' created. Objects already returned to you, and the backing files they use,
-#' are unaffected.
+#' @section Selective attachment and sibling objects:
+#' `include` limits which objects are exposed (by object or resource name).
+#' Opening one object loads its whole resource, so siblings from the same
+#' resource are opened and cached together even if not exposed.
 #'
-#' @inheritParams data_register
-#' @param packages Package names to register and attach, or ids of registered
-#'   collections; `NULL` means all registered collections.
-#' @param collections For `data_detach()`: collection ids to remove from the
-#'   facade; `NULL` removes the whole facade.
-#' @param name Search-path name of the facade.
+#' @section Mapping completeness:
+#' The catalog's `mapping` column is `index` (from install-time metadata),
+#' `declared` (manifest), `unknown` (resource exists, objects not known),
+#' `observed` (after [data_inspect()]) or `verified` (opened and matching).
+#' Unknown mappings are never guessed.
+#'
+#' @param packages Names of installed packages to attach.
+#' @param lib.loc Library directories searched, in order, for each package.
+#' @param id Collection ids (default: the package names).
+#' @param suffix `NULL` or one suffix per package (`NA` for none). Also exposes
+#'   each object as `<object><suffix>`, e.g. `cds_main.reference`.
+#' @param include `NULL`, or a named list (names are collection ids) of
+#'   object/resource names to expose. A character vector is accepted for one
+#'   package.
+#' @param primary `NULL` or the id of the collection whose objects keep bare
+#'   names when contested. Equivalent to calling [data_primary()].
+#' @param replace Replace collections that are already attached.
+#' @param name Search-path name of the environment.
 #' @param pos Search-path position.
 #' @param on_mask One of `"warn"`, `"error"`, `"ignore"`.
-#' @return Invisibly, the names bound in the facade.
+#' @return Invisibly, the names now bound in the environment.
+#' @seealso [data_query()] to look at packages without attaching them.
 #' @export
-data_attach <- function(packages = NULL, lib.loc = NULL, id = packages,
+data_attach <- function(packages, lib.loc = NULL, id = packages,
                         suffix = NULL, include = NULL, primary = NULL,
                         replace = FALSE, name = "projectData:data", pos = 2L,
                         on_mask = c("warn", "error", "ignore")) {
   on_mask <- match.arg(on_mask)
+  stopifnot(is.character(packages), length(packages) >= 1L)
+  id <- as.character(id)
+  if (length(id) != length(packages)) pd_abort("`id` must have one element per package.")
+  if (!is.null(suffix) && length(suffix) != length(packages)) {
+    pd_abort("`suffix` must have one element per package.")
+  }
   cand <- snapshot()
-  if (is.null(packages)) {
-    ids <- names(cand$collections)
-  } else {
-    stopifnot(is.character(packages), length(packages) >= 1L)
-    id <- as.character(id)
-    if (length(id) != length(packages)) pd_abort("`id` must have one element per package.")
-    if (!is.null(suffix) && length(suffix) != length(packages)) {
-      pd_abort("`suffix` must have one element per package.")
+  existing <- id %in% names(cand$collections) & !replace &
+    is.null(lib.loc) & is.null(suffix) & is.null(include)
+  for (i in which(existing)) {
+    co <- get_collection(id[i], cand)
+    if (!identical(co$package, packages[i])) {
+      pd_abort("Collection id '", id[i], "' is already attached from package '", co$package,
+               "', not '", packages[i], "'. Choose another `id`, or use replace = TRUE.")
     }
-    ids <- id
-    existing <- id %in% names(cand$collections) & !replace &
-      is.null(lib.loc) & is.null(suffix) & is.null(include)
-    for (i in id[existing]) check_installation_unchanged(get_collection(i, cand))
-    if (any(!existing)) {
-      cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
-                              if (is.null(suffix)) NULL else suffix[!existing],
-                              include, replace)
-    }
+    check_installation_unchanged(co)
+  }
+  if (any(!existing)) {
+    cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
+                            if (is.null(suffix)) NULL else suffix[!existing],
+                            include, replace)
   }
   if (!is.null(primary)) cand$primary <- primary
   f <- cand$facade
@@ -195,7 +207,6 @@ data_attach <- function(packages = NULL, lib.loc = NULL, id = packages,
   }
   f$on_mask <- on_mask
   cand$facade <- f
-  cand$attached <- union(cand$attached, ids)
 
   validate_state(cand)
   if (is.na(facade_pos(f$env))) {
@@ -211,21 +222,32 @@ data_attach <- function(packages = NULL, lib.loc = NULL, id = packages,
   invisible(nm)
 }
 
-#' @rdname data_attach
+#' Detach data packages
+#'
+#' Removes collections (default: all) from the attached environment and forgets
+#' them, along with any preferences and primary designation that refer to them.
+#' When none remain, the environment is removed from the search path. Only the
+#' environment projectData created is touched. Objects you already hold, and the
+#' backing files they use, are unaffected; nothing is deleted or closed. Work
+#' directories created by loaders stay in the session temporary directory.
+#'
+#' @param collections Collection ids; `NULL` detaches everything.
+#' @return Invisibly, the detached ids.
 #' @export
 data_detach <- function(collections = NULL) {
   cand <- snapshot()
   env <- cand$facade$env
-  if (is.null(collections)) {
-    cand$attached <- character()
-  } else {
-    cand$attached <- setdiff(cand$attached, collections)
-  }
+  ids <- collections %||% names(cand$collections)
+  for (i in ids) get_collection(i, cand)
+  cand$collections[ids] <- NULL
+  cand$preferences <- cand$preferences[!cand$preferences %in% ids]
+  if (cand$primary %in% ids) cand$primary <- NA_character_
+  validate_state(cand)
   commit_state(cand)
-  if (!length(.state$attached) && !is.na(facade_pos(env))) {
+  if (!length(.state$collections) && !is.na(facade_pos(env))) {
     clear_env(env)
     do.call("detach", list(name = .state$facade$name, character.only = TRUE))
     .state$facade$env <- NULL
   }
-  invisible()
+  invisible(ids)
 }

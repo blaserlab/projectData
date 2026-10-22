@@ -2,32 +2,33 @@
 % Please edit documentation in R/register.R
 \name{data_get}
 \alias{data_get}
-\alias{data_env}
-\title{Explicit access to data}
+\title{Get data objects explicitly}
 \usage{
 data_get(name, collection = NULL)
-
-data_env(id)
 }
 \arguments{
-\item{name}{Object name or alias.}
+\item{name}{Object name(s) or alias(es).}
 
-\item{collection}{Optional collection id.}
-
-\item{id}{Collection id for \code{data_env()}.}
+\item{collection}{Optional collection id (recycled over \code{name}).}
 }
 \value{
-The data object, or an environment.
+The object, or a named list for several names.
 }
 \description{
-\code{data_get()} returns an object without the facade. With \code{collection}, \code{name}
-is an original object name in that collection (qualified access). Without
-it, \code{name} is resolved with the same rules as the facade (including suffix
-aliases) and an unresolved ambiguity is an error naming the candidates.
-\code{data_env()} returns the per-collection environment: active bindings for the
-collection's exposed objects under their original names.
+Returns objects without relying on bare names on the search path, which is
+the most robust form in scripts and functions. The collections must be
+attached with \code{\link[=data_attach]{data_attach()}}. With \code{collection}, \code{name} is an original
+object name in that collection (qualified access, which also reaches
+objects that lost a name conflict). Without it, \code{name} is resolved exactly as
+a bare name is, including suffix aliases, and an unresolved ambiguity is an
+error naming the candidates.
 }
 \details{
+Give several names to open several objects in one call, for example to open
+all large objects at the start of a batch job: the first-access messages
+then appear together, before the rest of the analysis. A single name returns
+the object; several names return a named list.
+
 Repeated and aliased access share one cached resource; the returned object is
 the shared reference, \strong{not} an independent copy. Modifying an environment
 or reference-semantics object affects every alias.

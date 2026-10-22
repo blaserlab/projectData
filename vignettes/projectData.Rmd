@@ -83,9 +83,9 @@ data_attach("proteinData", lib.loc = lib)
 counts_prot
 ```
 
-## Looking at what is available
+## Looking at what is attached
 
-Everything below reads only recorded metadata. It never opens any data.
+These read only recorded metadata. They never open any data.
 
 ```{r catalog}
 data_catalog()[, c("collection", "exposed_name", "resource", "state")]
@@ -100,57 +100,66 @@ version, installed location, source file, and how the mapping was determined.
 `data_help("counts_rna")` opens the help page of the original topic in the
 source package. It is separate from inspection and never runs implicitly.
 
-## Loading individual objects
+## Getting objects explicitly
 
-Attaching registers the package, and these functions then work on any registered
-collection, attached or not. They take objects by explicit call, without relying
-on names on the search path (the next section shows registering without
-attaching):
+Bare names are convenient, but `data_get()` returns an object without relying on
+what is on the search path, so it is the more robust choice inside functions
+and scripts. (Attached bindings can also be evaluated by IDE completion or
+previews; see `system.file("ide-repro", package = "projectData")`.)
 
 ```{r explicit}
-data_get("meta_prot")                      # resolved like a bare name
-data_get("meta_rna", collection = "rnaseqData")   # qualified by collection
-get("meta_rna", envir = data_env("rnaseqData"))   # one collection's environment
+data_get("meta_prot")
+data_get("meta_rna", collection = "rnaseqData")
 ```
 
-`data_load()` opens resources eagerly, for predictable batch runs.
+Give several names to open several objects in one call. This is a good way to
+open large objects at the start of a batch job: the first-access messages
+appear together, before the rest of the analysis runs.
 
-In scripts, `data_get()` is the most robust access path, because attached
-bindings can be evaluated by IDE completion or previews (see
-`system.file("ide-repro", package = "projectData")`).
+```{r several}
+str(data_get(c("meta_rna", "meta_prot")))
+```
 
-## Inspecting a package without attaching it
+## First-access messages
 
-`data_register()` builds the same inventory as `data_attach()` but exposes no
-names. Use it to see what a data package offers before deciding to attach it.
-A collection that is registered can later be attached by its id.
+Before each resource is read for the first time, projectData prints a message
+naming the collection, the objects, the size of the source file when it is a
+single file, and the loader. For large data this is the moment to notice what is
+about to load. Turn the messages off with `data_config(messages = FALSE)`; the
+setting lasts for the session.
 
-```{r register}
+## Looking at a package without attaching it
+
+`data_query()` shows what a package contains, and which names would collide with
+the packages you list or with what is already attached, **without attaching
+anything or remembering anything**. Use it to look before you attach.
+
+```{r query}
 data_detach()
-data_unregister(data_collections()$id)
 
 fixture_package(lib, "rnaseqBatch2", "1.0.0", lazy = TRUE, datasets = list(
   counts_rna = list(counts_rna = matrix(101:106, 2)),
   meta_rna   = list(meta_rna = data.frame(sample = c("c", "d")))
 ))
 
-data_register(c("rnaseqData", "rnaseqBatch2"), lib.loc = lib, id = c("batch1", "batch2"))
-data_collections()[, c("id", "package", "version", "attached")]
-data_catalog()[, c("collection", "exposed_name", "binding", "state")]
+data_query(c("rnaseqData", "rnaseqBatch2"), lib.loc = lib,
+           id = c("batch1", "batch2"))[, c("collection", "exposed_name", "binding")]
+nrow(data_collections())
 ```
 
-The catalog already shows the problem here: `counts_rna` and `meta_rna` exist in
-both collections, so their `binding` is `ambiguous`. Registering does not change
-the search path, and it reads no data.
+The query already shows the problem: `counts_rna` and `meta_rna` exist in both
+packages, so their `binding` is `ambiguous`. The query changed nothing: no
+collections are attached.
 
 ## Conflicts {#conflicts}
 
 When two attached collections define the same name, the name cannot be resolved
 by order. Attaching still succeeds, and the catalog flags the conflict. Using the
-bare name fails with an error that lists the candidates:
+bare name fails with an error that lists the candidates. Use `id` to give each
+collection a name of your own:
 
 ```{r conflict, error = TRUE}
-data_attach(c("batch1", "batch2"))
+data_attach(c("rnaseqData", "rnaseqBatch2"), lib.loc = lib, id = c("batch1", "batch2"))
 counts_rna
 ```
 
@@ -173,7 +182,7 @@ meta_rna
 **A primary collection.** If one collection should win *all* its contested
 names, designate it. There is at most one, and a preference for a specific name
 still overrides it. It can also be set when attaching:
-`data_attach("batch1", primary = "batch1")`.
+`data_attach("rnaseqData", id = "batch1", primary = "batch1")`.
 
 ```{r primary}
 data_primary("batch1")
@@ -183,7 +192,7 @@ meta_rna
 **Suffix aliases and qualified access.** A suffix exposes every object in a
 collection also as `<name><suffix>`, which is handy for keeping older code
 working. Set it when you attach. Qualified access, `data_get(name, collection =)`,
-needs no setting.
+needs no setting and also reaches the copy that lost a conflict.
 
 ```{r suffix}
 data_attach("rnaseqBatch2", lib.loc = lib, id = "batch2", suffix = ".batch2",
@@ -200,12 +209,11 @@ and `data_primary(NULL)`.
 
 ```{r cleanup}
 data_detach()
-data_unregister(data_collections()$id)
 ```
 
-`data_detach()` removes only the environment projectData created.
-`data_unregister()` removes registrations. Neither deletes files or affects
-objects you already hold.
+`data_detach()` removes the attached collections and the environment projectData
+created, and forgets them. It does not delete files or affect objects you
+already hold. `data_detach("batch2")` removes just one collection.
 
 ## What this does not do
 

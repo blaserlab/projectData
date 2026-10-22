@@ -2,11 +2,10 @@
 % Please edit documentation in R/facade.R
 \name{data_attach}
 \alias{data_attach}
-\alias{data_detach}
 \title{Attach data packages}
 \usage{
 data_attach(
-  packages = NULL,
+  packages,
   lib.loc = NULL,
   id = packages,
   suffix = NULL,
@@ -17,73 +16,94 @@ data_attach(
   pos = 2L,
   on_mask = c("warn", "error", "ignore")
 )
-
-data_detach(collections = NULL)
 }
 \arguments{
-\item{packages}{Package names to register and attach, or ids of registered
-collections; \code{NULL} means all registered collections.}
+\item{packages}{Names of installed packages to attach.}
 
 \item{lib.loc}{Library directories searched, in order, for each package.}
 
-\item{id}{Collection ids (default: package names).}
+\item{id}{Collection ids (default: the package names).}
 
-\item{suffix}{\code{NULL} or one suffix per package (\code{NA} for none). Exposes each
-object also as \verb{<object><suffix>}, e.g. \code{cds_main.reference}.}
+\item{suffix}{\code{NULL} or one suffix per package (\code{NA} for none). Also exposes
+each object as \verb{<object><suffix>}, e.g. \code{cds_main.reference}.}
 
 \item{include}{\code{NULL}, or a named list (names are collection ids) of
-object/resource names to expose. A character vector is accepted when
-registering one package.}
+object/resource names to expose. A character vector is accepted for one
+package.}
 
 \item{primary}{\code{NULL} or the id of the collection whose objects keep bare
 names when contested. Equivalent to calling \code{\link[=data_primary]{data_primary()}}.}
 
-\item{replace}{Replace collections that are already registered.}
+\item{replace}{Replace collections that are already attached.}
 
-\item{name}{Search-path name of the facade.}
+\item{name}{Search-path name of the environment.}
 
 \item{pos}{Search-path position.}
 
 \item{on_mask}{One of \code{"warn"}, \code{"error"}, \code{"ignore"}.}
-
-\item{collections}{For \code{data_detach()}: collection ids to remove from the
-facade; \code{NULL} removes the whole facade.}
 }
 \value{
-Invisibly, the names bound in the facade.
+Invisibly, the names now bound in the environment.
 }
 \description{
-\code{data_attach()} is the normal way to make data available. Given package
-names it registers any that are not yet registered (with the same arguments
-and the same atomic validation as \code{\link[=data_register]{data_register()}}) and then places one
-environment, by default named \code{"projectData:data"}, on the search path at
-\code{pos}, exposing the objects as bare names through deferred active bindings.
-Nothing is read until you use an object. Nothing is attached unless you call
-this function. Call it again to attach more packages; later calls add to the
-same environment.
+\code{data_attach()} is how data become available. Given the names of installed
+data packages, it inventories each one (reading package metadata only, never
+data values) and puts its objects, by their own names, in one environment,
+by default named \code{"projectData:data"}, placed on the search path at \code{pos}.
+The objects are deferred active bindings: each is read the first time you use
+it, with a message first (see \code{\link[=data_config]{data_config()}}). Nothing is attached unless
+you call this function. Call it again to attach more packages; they join the
+same environment. Attachment is all-or-nothing: if any package fails
+validation (for example a suffix collision), nothing is attached.
 }
 \details{
-Each element of \code{packages} is either a package name to register, or the id
-of a collection that is already registered (for example one inspected with
-\code{\link[=data_register]{data_register()}}), which is simply attached. If you pass registration
-arguments (\code{lib.loc}, \code{suffix}, \code{include}) for an id that is already
-registered you must also give \code{replace = TRUE}. An already registered
-collection whose installed package has changed since registration is
-reported as an error and must be re-registered with \code{replace = TRUE}.
-With \code{packages = NULL}, all registered collections are attached.
+An attached package is a \emph{collection} with an id (by default the package
+name). Use \code{id} to attach the same package twice, for example two installed
+versions from different libraries. Attaching an id that is already attached
+from the same package does nothing, unless the installed package has changed
+since, which is an error asking for \code{replace = TRUE}. Registration arguments
+(\code{lib.loc}, \code{suffix}, \code{include}) for an id that is already attached also need
+\code{replace = TRUE}.
+
+The installed copy is resolved once, here, from \code{lib.loc} (default
+\code{\link[=.libPaths]{.libPaths()}}); later changes to \code{\link[=.libPaths]{.libPaths()}} cannot redirect a pending
+read. If the installed package is replaced in place before an object is
+opened, opening fails informatively and you re-attach with \code{replace = TRUE};
+objects already opened are unaffected.
+}
+\section{Name conflicts}{
 
 Name resolution is metadata-only. The bare name of an object that exists in
-several collections is bound only if you designated a primary collection
-(\code{\link[=data_primary]{data_primary()}}) or a preference (\code{\link[=data_prefer]{data_prefer()}}); otherwise it is bound
-to an error that names the candidates. Suffix aliases always resolve.
+several attached collections is bound only if you designated a primary
+collection (\code{\link[=data_primary]{data_primary()}}) or a preference (\code{\link[=data_prefer]{data_prefer()}}); otherwise it
+is bound to an error naming the candidates. Attaching still succeeds, and the
+ambiguity shows in \code{\link[=data_catalog]{data_catalog()}}. Suffix aliases always resolve and must be
+unique.
+}
 
-Objects in \code{.GlobalEnv} shadow the facade (it sits after \code{.GlobalEnv}) and
-are never touched. \code{on_mask} controls what happens when exposed names also
-exist elsewhere on the search path: \code{"warn"} (default), \code{"error"} (checked
-before anything changes) or \code{"ignore"}.
+\section{Masking}{
 
-\code{data_detach()} removes collections from the facade, or the whole facade when
-\code{collections} is \code{NULL}. It only removes the environment projectData
-created. Objects already returned to you, and the backing files they use,
-are unaffected.
+Objects in \code{.GlobalEnv} shadow the attached environment (it sits after
+\code{.GlobalEnv}) and are never touched. \code{on_mask} controls what happens when
+exposed names also exist elsewhere on the search path: \code{"warn"} (default),
+\code{"error"} (checked before anything changes) or \code{"ignore"}.
+}
+
+\section{Selective attachment and sibling objects}{
+
+\code{include} limits which objects are exposed (by object or resource name).
+Opening one object loads its whole resource, so siblings from the same
+resource are opened and cached together even if not exposed.
+}
+
+\section{Mapping completeness}{
+
+The catalog's \code{mapping} column is \code{index} (from install-time metadata),
+\code{declared} (manifest), \code{unknown} (resource exists, objects not known),
+\code{observed} (after \code{\link[=data_inspect]{data_inspect()}}) or \code{verified} (opened and matching).
+Unknown mappings are never guessed.
+}
+
+\seealso{
+\code{\link[=data_query]{data_query()}} to look at packages without attaching them.
 }

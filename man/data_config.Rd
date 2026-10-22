@@ -7,9 +7,12 @@
 data_config(messages, on_open)
 }
 \arguments{
-\item{messages}{Logical. Emit a message the first time a resource is
-opened. The message names the object, collection, and loader, and states
-that local installed files are used (nothing is downloaded).}
+\item{messages}{Logical (default \code{TRUE}). Emit a message the first time a
+resource is opened, before any data are read. It names the objects, the
+collection and loader, gives the on-disk size of a single source file when
+there is one, and states that local installed files are used (nothing is
+downloaded). Turn it off with \code{data_config(messages = FALSE)}; the setting
+lasts for the session.}
 
 \item{on_open}{Optional function called with a list (\code{collection},
 \code{resource}, \code{package}, \code{loader}, \code{root}) immediately before a loader's
@@ -20,7 +23,7 @@ Use \code{NULL} to remove it.}
 The current configuration, invisibly.
 }
 \description{
-Configure projectData session behavior
+With no arguments, \code{data_config()} just returns the current settings.
 }
 \examples{
 old <- data_config(messages = FALSE)

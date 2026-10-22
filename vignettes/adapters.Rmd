@@ -61,13 +61,14 @@ fixture_package(lib, "diskData", "1.0.0", lazy = FALSE, datasets = list(),
   }))
 
 data_loader_add(tinydisk_loader())     # explicit registration; required for discovery
-data_register("diskData", lib.loc = lib)
-data_catalog()[, c("object", "loader", "storage", "state")]
+data_query("diskData", lib.loc = lib)[, c("object", "loader", "storage", "state")]
+data_attach("diskData", lib.loc = lib)
 
 counts <- data_get("counts")
 dim(counts)
 counts[2, 3]
 data_catalog()[, c("object", "storage", "state")]
+data_detach()
 ```
 
 `ready` means the loader returned. For a `disk-backed` loader it does not mean
