@@ -345,14 +345,9 @@ assemble_descriptors <- function(root, context) {
   for (d in declared) candidates[[d$resource]] <- d
   out <- unname(candidates)
 
-  seen <- list()
-  for (d in out) for (o in d$objects) {
-    if (!is.null(seen[[o]])) {
-      pd_abort("Object '", o, "' is produced by both resource '", seen[[o]],
-               "' and '", d$resource, "' in the same collection.",
-               class = "projectData_duplicate_object")
-    }
-    seen[[o]] <- d$resource
-  }
+  check_unique_objects(
+    context$collection,
+    rep(vapply(out, function(d) d$resource, ""), lengths(lapply(out, function(d) d$objects))),
+    unlist(lapply(out, function(d) d$objects), use.names = FALSE))
   out
 }

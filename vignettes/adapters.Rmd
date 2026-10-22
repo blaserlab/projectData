@@ -262,7 +262,10 @@ id, in this order:
    outcome does not depend on the order in which loaders were registered.
 
 Distinct resources that expose the same object name are a separate error
-(`projectData_duplicate_object`); a manifest does not merge them.
+(`projectData_duplicate_object`); a manifest does not merge them. The same
+rule is applied again to the complete proposed mapping of `data_inspect()`, so
+inspection cannot introduce a duplicate that an unknown mapping hid at
+registration. Identical names in separate collections remain supported.
 
 ## Registration and attachment (developer notes)
 

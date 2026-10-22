@@ -37,4 +37,26 @@ a primary, preference or suffix alias resolves it. Names
 that disappear from the mapping are no longer bound; names that appear are
 bound or aliased as for any other object. Help topics are carried over only
 for names that were already recorded.
+
+\strong{Names are unique within a collection.} Two distinct resources of one
+collection cannot produce the same object name, whether the collection is
+attached or only registered (for example by \code{data_get(package = )}). The same
+rule applies when the collection is assembled and to the complete mapping
+proposed by an inspection, so an observed name already owned by another
+resource (for instance one whose mapping is \code{unknown}, or a wrongly recorded
+mapping corrected to such a name) is rejected with a
+\code{projectData_duplicate_object} error naming the collection, the object and
+the competing resource ids. When several \code{resource}s are inspected together
+their mappings are validated as one update, so a coordinated correction
+that is valid as a whole succeeds even if a single resource alone would
+collide, and an invalid combination commits none of them. Identical names in
+\emph{different} collections are unaffected and follow the conflict rules above.
+
+A rejected update is a mapping problem, not a loader failure. Resources
+opened during the inspection stay \code{ready} and cached (so repeating the
+inspection, or \code{\link[=data_get]{data_get()}} under their existing names, does not read them
+again), but the object table, bindings, preferences and attachment state are
+exactly as before; only a committed mapping changes what the catalog reports.
+To resolve the collision, correct the recorded mapping (for example in a
+manifest) so that the resources no longer claim the same name.
 }

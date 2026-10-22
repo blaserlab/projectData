@@ -242,6 +242,8 @@ get_object <- function(id, object) {
   co <- get_collection(id)
   row <- co$objects[!is.na(co$objects$object) & co$objects$object == object, , drop = FALSE]
   if (!nrow(row)) pd_abort("Collection '", id, "' has no object '", object, "'.")
+  # Defensive: never pick the first of several owners.
+  check_unique_objects(id, co$objects$resource, co$objects$object)
   rec <- co$resources[[row$resource[1]]]
   open_resource(co, rec)
   if (!object %in% names(rec$value)) {

@@ -70,9 +70,32 @@ ambiguity_message <- function(name, res) {
          "data_get(\"", name, "\", collection = \"", cands[1], "\").")
 }
 
+# The one rule for object names within a collection: each recorded name belongs
+# to exactly one resource (unknown mappings, NA, claim nothing). Used for initial
+# assembly, for every proposed state and before retrieval. Metadata only.
+check_unique_objects <- function(collection, resource, object) {
+  keep <- !is.na(object)
+  tab <- unique(data.frame(resource = resource[keep], object = object[keep],
+                           stringsAsFactors = FALSE))
+  dup <- unique(tab$object[duplicated(tab$object)])
+  if (length(dup)) {
+    nm <- dup[1]
+    pd_abort("Object '", nm, "' is produced by more than one resource in collection '",
+             collection, "': ", quote_names(tab$resource[tab$object == nm]),
+             if (length(dup) > 1L) paste0(" (also duplicated: ", quote_names(dup[-1]), ")") else "",
+             ". Object names must be unique within a collection; nothing was changed. ",
+             "Correct the mapping (manifest or data_inspect() of the resources involved).",
+             class = "projectData_duplicate_object")
+  }
+  invisible(TRUE)
+}
+
 validate_state <- function(cand) {
   ids <- names(cand$collections)
   if (anyDuplicated(ids)) pd_abort("Duplicate collection ids.")
+  for (co in cand$collections) {
+    check_unique_objects(co$id, co$objects$resource, co$objects$object)
+  }
   if (!is.na(cand$primary) && !cand$primary %in% names(attached_collections(cand))) {
     pd_abort("Primary collection '", cand$primary, "' is not attached.")
   }
