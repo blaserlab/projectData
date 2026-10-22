@@ -143,3 +143,13 @@ test_that("global objects are never overwritten and shadow the facade with a war
   expect_error(data_attach("pdref", lib.loc = fx$lib, on_mask = "error"), class = "projectData_masking")
   expect_false("projectData:data" %in% search())
 })
+
+test_that("the datalist index file is ignored silently; other unsupported files warn", {
+  local_clean_session()
+  lib <- fixture_library()
+  root <- fixture_package(lib, "pddl", lazy = FALSE, datasets = list(a = list(a = 1)))
+  writeLines("a: a", file.path(root, "data", "datalist"))
+  expect_no_warning(data_query("pddl", lib.loc = lib))
+  writeLines("x", file.path(root, "data", "notes.xyz"))
+  expect_warning(data_query("pddl", lib.loc = lib), class = "projectData_unsupported_format")
+})

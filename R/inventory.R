@@ -73,7 +73,9 @@ inventory_datasets <- function(root) {
       datasets[[ds]] <- list(source = "data/Rdata.rdb", objects = as.character(map[[ds]]))
     }
   } else if (dir.exists(data_dir)) {
-    files <- list.files(data_dir)
+    # `datalist` is written by R CMD build/INSTALL as an index of the data
+    # directory; it is not a dataset.
+    files <- setdiff(list.files(data_dir), "datalist")
     ok <- grepl(data_file_pattern, files)
     if (any(!ok)) {
       pd_warn("Unsupported files in data/ were not inventoried: ",
