@@ -317,3 +317,119 @@ test_that("existing manifests are not overwritten and failed writes leave nothin
   expect_equal(list.files(dirname(file), all.files = TRUE, no.. = TRUE), "manifest.dcf")
   expect_length(stage_dirs(), 0L)
 })
+
+# Link failure during staging (revision cycle 3, issue 3.1) -------------------
+
+# Fails link creation from the `n`th call on, and records link and copy calls.
+local_link_failure <- function(fail_from = 1L, env = parent.frame()) {
+  rec <- new.env()
+  rec$links <- character()
+  rec$copies <- 0L
+  testthat::local_mocked_bindings(
+    make_link = function(from, to) {
+      rec$links <- c(rec$links, from)
+      if (length(rec$links) >= fail_from) return(FALSE)
+      isTRUE(file.symlink(from, to))
+    },
+    .env = env
+  )
+  testthat::local_mocked_bindings(
+    file.copy = function(...) { rec$copies <- rec$copies + 1L; FALSE },
+    .package = "base", .env = env
+  )
+  rec
+}
+
+test_that("link failure gives a targeted error and never copies", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  rec <- local_link_failure()
+  err <- expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
+  expect_match(conditionMessage(err), "No data was copied", fixed = TRUE)
+  expect_match(conditionMessage(err), file.path(fx$src, "data"), fixed = TRUE)
+  expect_match(conditionMessage(err), "installed-layout", fixed = TRUE)
+  expect_equal(rec$copies, 0L)
+  expect_length(stage_dirs(), 0L)
+})
+
+test_that("failure after successful links removes the partial view and leaves the source intact", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  before <- tree_files(fx$src)
+  rec <- local_link_failure(fail_from = 2L)
+  expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
+  expect_length(rec$links, 2L)
+  expect_equal(rec$copies, 0L)
+  expect_length(stage_dirs(), 0L)
+  expect_equal(tree_files(fx$src), before)
+})
+
+test_that("cleanup does not follow or delete nested links that leave the source tree", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  data_loader_add(recording_adapters()$tinymat)
+  outside <- withr::local_tempdir()
+  writeLines("keep", file.path(outside, "precious.txt"))
+  skip_if_not(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
+  skip_if_not(isTRUE(file.symlink(outside, file.path(fx$src, "data", "escape"))))
+  dir.create(file.path(fx$src, "inst", "extra"))
+  rec <- local_link_failure(fail_from = 3L)
+  expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
+  expect_true(file.exists(file.path(outside, "precious.txt")))
+  expect_identical(readLines(file.path(outside, "precious.txt")), "keep")
+  expect_true(file.exists(file.path(fx$src, "data", "escape")))
+  expect_true(file.exists(file.path(fx$src, "inst", "extdata", "escape")))
+  expect_length(stage_dirs(), 0L)
+})
+
+test_that("existing manifests are unchanged when staging fails", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  data_loader_add(recording_adapters()$tinymat)
+  d <- data_manifest_draft(fx$src)
+  mf <- file.path(fx$src, "inst", "projectData", "manifest.dcf")
+  data_manifest_write(d, mf, root = fx$src)
+  before <- readLines(mf)
+  info <- file.info(mf)
+  rec <- local_link_failure()
+  expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
+  expect_error(data_manifest_validate(mf, root = fx$src), class = "projectData_staging_error")
+  expect_error(data_manifest_write(d, mf, root = fx$src, overwrite = TRUE),
+               class = "projectData_staging_error")
+  expect_identical(readLines(mf), before)
+  expect_equal(file.info(mf)$mtime, info$mtime)
+  expect_equal(rec$copies, 0L)
+  expect_length(list.files(dirname(mf), all.files = TRUE, no.. = TRUE), 1L)
+})
+
+test_that("successful staging still handles standard datasets and extdata resources", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  ad <- recording_adapters()
+  data_loader_add(ad$tinymat)
+  data_loader_add(ad$rda)
+  expect_equal(data_manifest_draft(fx$src, loaders = "srcadp::rda")[[1]]$source,
+               "data/example.rda")
+  expect_warning(d <- data_manifest_draft(fx$src), class = "projectData_draft_conflict")
+  expect_equal(d[[1]]$source, "extdata/counts.tinymat")
+  expect_true(all(c("data", "extdata") %in% ad$log$discover[[1]]$entries))
+  expect_length(stage_dirs(), 0L)
+})
+
+test_that("installed and standalone roots work when source staging is unavailable", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  data_loader_add(recording_adapters()$tinymat)
+  lib <- withr::local_tempdir()
+  installed <- install_source_pkg(fx$src, lib)
+  rec <- local_link_failure()
+  d_inst <- data_manifest_draft(installed)
+  expect_equal(vapply(d_inst, function(x) x$resource, ""), "counts")
+  d_alone <- data_manifest_draft(file.path(fx$src, "inst"))
+  expect_equal(vapply(d_alone, function(x) x$source, ""), "extdata/counts.tinymat")
+  mf <- file.path(withr::local_tempdir(), "manifest.dcf")
+  data_manifest_write(d_alone, mf, root = file.path(fx$src, "inst"))
+  expect_error(data_manifest_validate(mf, root = file.path(fx$src, "inst")), NA)
+  expect_length(rec$links, 0L)
+  expect_equal(rec$copies, 0L)
+})

@@ -4,9 +4,12 @@
 # relative to the *installed* package root, where `data/` and the contents of
 # `inst/` sit side by side. A source tree does not have that shape, so for a
 # source package authoring builds a temporary view with the installed shape
-# (links to `data/` and to each top-level entry of `inst/`; a copy only where
-# links cannot be made). Nothing is read or executed to build it, and the view
-# is removed afterwards.
+# (links to `data/` and to each top-level entry of `inst/`). Building it reads
+# no dataset values, executes nothing and copies no data: if a link cannot be
+# made, staging fails with an error rather than copying, because a recursive
+# copy of a large data collection is not lightweight. The view is removed
+# afterwards; cleanup only removes the links created by the current operation
+# and never touches or traverses their targets.
 
 manifest_layouts <- c("auto", "installed", "source", "standalone")
 
@@ -56,14 +59,23 @@ root_context <- function(root, layout = "standalone", source_root = root) {
   )
 }
 
+# Creates one link; a separate function so tests can force failure.
+make_link <- function(from, to) {
+  isTRUE(suppressWarnings(file.symlink(from, to)))
+}
+
 # Builds the staged view of a source package.
 stage_source_layout <- function(src) {
   stage <- tempfile("projectData-stage-")
   dir.create(stage)
   linked <- character()
+  # Links are removed as links (never recursively), then the now-empty staging
+  # directory; targets in the source tree are never followed.
   close <- function() {
-    for (p in linked) unlink(p)
-    unlink(stage, recursive = TRUE)
+    for (p in linked) file.remove(p)
+    linked <<- character()
+    if (!length(list.files(stage, all.files = TRUE, no.. = TRUE))) file.remove(stage)
+    invisible(NULL)
   }
   ok <- FALSE
   on.exit(if (!ok) close())
@@ -82,11 +94,17 @@ stage_source_layout <- function(src) {
   }
   for (nm in names(entries)) {
     to <- file.path(stage, nm)
-    if (isTRUE(suppressWarnings(file.symlink(entries[[nm]], to)))) {
-      linked <- c(linked, to)
-    } else if (!file.copy(entries[[nm]], stage, recursive = TRUE)) {
-      pd_abort("Could not stage '", entries[[nm]], "' for authoring.")
+    if (!make_link(entries[[nm]], to)) {
+      pd_abort("Could not create a link for the source entry '", entries[[nm]], "' ",
+               "while building the temporary installed-layout view needed to author ",
+               "against a package source tree. No data was copied: projectData does not ",
+               "fall back to copying, which could duplicate a large data collection. ",
+               "Author from an environment that can create links, or pass an installed ",
+               "package or an explicitly prepared installed-layout directory as `root` ",
+               "(with `layout = \"installed\"` or `\"standalone\"`).",
+               class = "projectData_staging_error")
     }
+    linked <- c(linked, to)
   }
   ok <- TRUE
   list(root = normalizePath(stage, winslash = "/", mustWork = TRUE), close = close,

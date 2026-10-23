@@ -63,9 +63,14 @@ root, where \verb{data/} and the contents of \verb{inst/} sit side by side
 \item a \strong{package source tree} (a directory with a \code{DESCRIPTION}, e.g.
 \verb{my.datapkg/}), the recommended entry point when authoring. projectData
 builds a temporary view with the installed shape (links to \verb{data/} and to
-each top-level entry of \verb{inst/}; copies only if links cannot be made),
-hands that view's path to the callbacks as \code{root}, and removes it
-afterwards. Neither \verb{data/} nor \verb{inst/} is modified, nothing is
+each top-level entry of \verb{inst/}), hands that view's path to the callbacks
+as \code{root}, and removes it afterwards. This needs a file system and R
+session that can create symbolic links. If a link cannot be created the
+call fails naming the entry; projectData never falls back to copying data,
+and existing manifests are left untouched. In that case author from an
+environment that supports links, or use an installed package or an
+explicitly prepared installed-layout directory as \code{root}. Cleanup removes
+only the links created for the call, never their targets. Neither \verb{data/} nor \verb{inst/} is modified, nothing is
 installed, and no dataset is loaded or script run: standard datasets are
 recognized from their file names, so their object names stay unknown.
 Resolved files must stay inside the package's \verb{data/} and \verb{inst/}.

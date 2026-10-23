@@ -156,10 +156,15 @@ callbacks work with, are relative to the **installed** package root, where
 
 * a **package source tree**, a directory with a `DESCRIPTION`. This is the
   recommended entry point. projectData builds a temporary view with the
-  installed shape, passes it to your callbacks, and removes it afterwards;
-  your `data/` and `inst/` are never modified, the package is not installed,
-  and no dataset is loaded or script run. Standard datasets are recognized by
-  file name, so their object names stay unknown.
+  installed shape (links to `data/` and each top-level entry of `inst/`),
+  passes it to your callbacks, and removes it afterwards; your `data/` and
+  `inst/` are never modified, the package is not installed, and no dataset is
+  loaded, copied or script run. Standard datasets are recognized by file name,
+  so their object names stay unknown. This requires a file system and R session
+  that can create symbolic links. If a link cannot be created, authoring fails
+  with an error naming the entry and does not copy any data, since that could
+  duplicate a very large collection; existing manifests are left unchanged.
+  Use an environment that supports links, or one of the next two kinds of root.
 * an **installed package** directory, used as is;
 * a **standalone resource directory**, used as is. This is the earlier
   convention of passing `inst/`; it still works for `extdata/` resources but

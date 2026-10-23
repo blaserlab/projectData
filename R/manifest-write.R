@@ -39,9 +39,14 @@ manifest_default_export <- "projectData_loaders"
 #' * a **package source tree** (a directory with a `DESCRIPTION`, e.g.
 #'   `my.datapkg/`), the recommended entry point when authoring. projectData
 #'   builds a temporary view with the installed shape (links to `data/` and to
-#'   each top-level entry of `inst/`; copies only if links cannot be made),
-#'   hands that view's path to the callbacks as `root`, and removes it
-#'   afterwards. Neither `data/` nor `inst/` is modified, nothing is
+#'   each top-level entry of `inst/`), hands that view's path to the callbacks
+#'   as `root`, and removes it afterwards. This needs a file system and R
+#'   session that can create symbolic links. If a link cannot be created the
+#'   call fails naming the entry; projectData never falls back to copying data,
+#'   and existing manifests are left untouched. In that case author from an
+#'   environment that supports links, or use an installed package or an
+#'   explicitly prepared installed-layout directory as `root`. Cleanup removes
+#'   only the links created for the call, never their targets. Neither `data/` nor `inst/` is modified, nothing is
 #'   installed, and no dataset is loaded or script run: standard datasets are
 #'   recognized from their file names, so their object names stay unknown.
 #'   Resolved files must stay inside the package's `data/` and `inst/`.
