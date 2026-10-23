@@ -329,6 +329,26 @@ script_lookup_env <- function(getter = getExportedValue) {
   parent
 }
 
+# utils::data() runs library("utils") before sourcing an R script, which
+# attaches utils when it is absent. If utils was not attached when this call
+# started, detach it again on exit (success or error). A preexisting attachment
+# is never touched, so its position is kept; nested openings are safe because an
+# inner call sees the attachment made by the outer data() call and leaves it for
+# the outer call to remove. Limit: an attachment of utils cannot be attributed
+# to data() or to the script, so a script that itself calls library(utils)
+# while it is absent loses that attachment too. Nothing else is restored.
+without_implicit_utils <- function(expr) {
+  if (!"package:utils" %in% search()) {
+    on.exit(
+      if ("package:utils" %in% search()) {
+        detach("package:utils", character.only = TRUE)
+      },
+      add = TRUE
+    )
+  }
+  expr
+}
+
 # Built-in loaders -----------------------------------------------------------
 
 register_builtin_loaders <- function() {
@@ -339,8 +359,10 @@ register_builtin_loaders <- function() {
         # Scripts see the standard startup packages, not the global workspace
         # or other attached packages; outputs go to a separate, fresh frame.
         env <- new.env(parent = script_lookup_env())
-        utils::data(list = descriptor$resource, package = context$package,
-                    lib.loc = context$library, envir = env, overwrite = TRUE)
+        without_implicit_utils(
+          utils::data(list = descriptor$resource, package = context$package,
+                      lib.loc = context$library, envir = env, overwrite = TRUE)
+        )
         mget(sort(ls(env, all.names = TRUE)), envir = env)
       }
     ),

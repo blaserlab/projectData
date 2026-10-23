@@ -130,7 +130,18 @@ not find function" and the resource is marked failed (see \code{\link[=data_retr
 \verb{R CMD INSTALL} evaluates scripts in its own session, so an unqualified call
 can install cleanly and fail only here.
 
-Nothing is attached to the search path. Exports are exposed lazily, as
+Opening a script does not change the search path. \code{\link[utils:data]{utils::data()}} itself
+attaches \code{utils} while it runs a script; projectData detaches that
+attachment again afterwards (also on error) only when \code{utils} was not
+attached beforehand. A preexisting attachment and its position are left
+alone, and no other search-path entry is restored. Changes a script makes
+deliberately (\code{library()}, \code{attach()}, \code{options()}, \code{setwd()}, ...) are the
+script's own and are not undone, except that a script calling
+\code{library(utils)} while \code{utils} is detached cannot be told apart from
+\code{data()}'s attachment and is cleaned up too. The working directory is the
+script's directory while it runs and is restored by \code{\link[=sys.source]{sys.source()}}.
+
+Nothing is attached by the lookup chain. Exports are exposed lazily, as
 promises for \code{package::name}, so package datasets are not retrieved merely
 because their names are visible, and functions keep their own environments;
 standard package namespaces are loaded if needed. Limits: the \code{Autoloads}

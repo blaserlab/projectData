@@ -176,7 +176,18 @@ data_masking <- function() {
 #' `R CMD INSTALL` evaluates scripts in its own session, so an unqualified call
 #' can install cleanly and fail only here.
 #'
-#' Nothing is attached to the search path. Exports are exposed lazily, as
+#' Opening a script does not change the search path. [utils::data()] itself
+#' attaches `utils` while it runs a script; projectData detaches that
+#' attachment again afterwards (also on error) only when `utils` was not
+#' attached beforehand. A preexisting attachment and its position are left
+#' alone, and no other search-path entry is restored. Changes a script makes
+#' deliberately (`library()`, `attach()`, `options()`, `setwd()`, ...) are the
+#' script's own and are not undone, except that a script calling
+#' `library(utils)` while `utils` is detached cannot be told apart from
+#' `data()`'s attachment and is cleaned up too. The working directory is the
+#' script's directory while it runs and is restored by [sys.source()].
+#'
+#' Nothing is attached by the lookup chain. Exports are exposed lazily, as
 #' promises for `package::name`, so package datasets are not retrieved merely
 #' because their names are visible, and functions keep their own environments;
 #' standard package namespaces are loaded if needed. Limits: the `Autoloads`
