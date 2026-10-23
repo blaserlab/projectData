@@ -89,6 +89,7 @@ tree_files <- function(path) {
 stage_dirs <- function() list.files(tempdir(), "^projectData-stage-")
 
 test_that("a source tree drafts adapter claims with installed-relative paths and real identity", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   ad <- recording_adapters()
@@ -120,6 +121,7 @@ test_that("a source tree drafts adapter claims with installed-relative paths and
 })
 
 test_that("standard datasets in a source tree follow the existing claim rules", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   ad <- recording_adapters()
@@ -140,6 +142,7 @@ test_that("standard datasets in a source tree follow the existing claim rules", 
 })
 
 test_that("a specialized-reader override for a standard resource is written and validated", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg(corrupt_rda = TRUE)
   ad <- recording_adapters()
@@ -180,6 +183,7 @@ test_that("a specialized-reader override for a standard resource is written and 
 })
 
 test_that("an authored manifest installs into a usable collection", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   ad <- recording_adapters()
@@ -274,6 +278,7 @@ test_that("installed roots are used as installed and never modified", {
 })
 
 test_that("unsafe sources are rejected in a source tree", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   ad <- recording_adapters()
@@ -294,7 +299,7 @@ test_that("unsafe sources are rejected in a source tree", {
   outside <- withr::local_tempdir()
   writeLines("secret", file.path(outside, "secret.rda"))
   link <- file.path(fx$src, "inst", "extdata", "escape.rda")
-  skip_if_not(isTRUE(suppressWarnings(file.symlink(file.path(outside, "secret.rda"), link))))
+  expect_true(isTRUE(suppressWarnings(file.symlink(file.path(outside, "secret.rda"), link))))
   expect_error(w(source = "extdata/escape.rda"), "does not exist")
   expect_false(file.exists(file))
   # links to the staged view did not damage the source tree
@@ -303,6 +308,7 @@ test_that("unsafe sources are rejected in a source tree", {
 })
 
 test_that("existing manifests are not overwritten and failed writes leave nothing", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   data_loader_add(recording_adapters()$tinymat)
@@ -353,6 +359,7 @@ test_that("link failure gives a targeted error and never copies", {
 })
 
 test_that("failure after successful links removes the partial view and leaves the source intact", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   before <- tree_files(fx$src)
@@ -365,13 +372,14 @@ test_that("failure after successful links removes the partial view and leaves th
 })
 
 test_that("cleanup does not follow or delete nested links that leave the source tree", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   data_loader_add(recording_adapters()$tinymat)
   outside <- withr::local_tempdir()
   writeLines("keep", file.path(outside, "precious.txt"))
-  skip_if_not(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
-  skip_if_not(isTRUE(file.symlink(outside, file.path(fx$src, "data", "escape"))))
+  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
+  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "data", "escape"))))
   dir.create(file.path(fx$src, "inst", "extra"))
   rec <- local_link_failure(fail_from = 3L)
   expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
@@ -383,6 +391,7 @@ test_that("cleanup does not follow or delete nested links that leave the source 
 })
 
 test_that("existing manifests are unchanged when staging fails", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   data_loader_add(recording_adapters()$tinymat)
@@ -403,6 +412,7 @@ test_that("existing manifests are unchanged when staging fails", {
 })
 
 test_that("successful staging still handles standard datasets and extdata resources", {
+  skip_if_no_links()
   local_clean_session()
   fx <- local_source_pkg()
   ad <- recording_adapters()
@@ -432,4 +442,136 @@ test_that("installed and standalone roots work when source staging is unavailabl
   expect_error(data_manifest_validate(mf, root = file.path(fx$src, "inst")), NA)
   expect_length(rec$links, 0L)
   expect_equal(rec$copies, 0L)
+})
+
+# Cleanup correctness (separate from link availability) ------------------------
+
+# Runs `code`, returning the error it raised and the warnings it signalled.
+capture_error_and_warnings <- function(code) {
+  warnings <- list()
+  err <- withCallingHandlers(
+    tryCatch({ code; NULL }, error = function(e) e),
+    warning = function(w) {
+      warnings[[length(warnings) + 1L]] <<- w
+      invokeRestart("muffleWarning")
+    })
+  list(error = err, warnings = warnings)
+}
+
+# Removes whatever a deliberately failed cleanup left behind: links as links,
+# then the directory. Registered before the failure is provoked.
+local_remove_stage_leftovers <- function(env = parent.frame()) {
+  before <- stage_dirs()
+  withr::defer({
+    for (d in setdiff(stage_dirs(), before)) {
+      dir <- file.path(tempdir(), d)
+      for (e in list.files(dir, all.files = TRUE, no.. = TRUE, full.names = TRUE)) {
+        unlink(e, recursive = FALSE)
+      }
+      unlink(dir, recursive = TRUE)
+    }
+  }, envir = env)
+}
+
+test_that("complete staging cleanup removes only its links and directory", {
+  skip_if_no_links()
+  fx <- local_source_pkg()
+  outside <- withr::local_tempdir()
+  writeLines("keep", file.path(outside, "precious.txt"))
+  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
+  before <- tree_files(fx$src)
+
+  st <- projectData:::stage_source_layout(fx$src)
+  expect_true(all(c("data", "extdata") %in% list.files(st$root)))
+  expect_no_warning(expect_true(st$close()))
+  expect_false(dir.exists(st$root))
+  expect_equal(tree_files(fx$src), before)
+  expect_identical(readLines(file.path(outside, "precious.txt")), "keep")
+  # repeated cleanup is harmless
+  expect_no_warning(st$close())
+})
+
+test_that("cleanup refuses entries it did not create and keeps a non-empty directory", {
+  skip_if_no_links()
+  fx <- local_source_pkg()
+  local_remove_stage_leftovers()
+  st <- projectData:::stage_source_layout(fx$src)
+  foreign <- file.path(st$root, "foreign.txt")
+  writeLines("not ours", foreign)
+
+  expect_warning(st$close(), class = "projectData_cleanup_warning")
+  expect_true(file.exists(foreign))
+  expect_false(file.exists(file.path(st$root, "data")))
+  expect_true(file.exists(file.path(fx$src, "data", "example.rda")))
+
+  unlink(foreign)
+  expect_no_warning(st$close())
+  expect_false(dir.exists(st$root))
+})
+
+test_that("a link replaced by something else is not removed", {
+  skip_if_no_links()
+  skip_on_os("windows")
+  fx <- local_source_pkg()
+  local_remove_stage_leftovers()
+  st <- projectData:::stage_source_layout(fx$src)
+  link <- file.path(st$root, "data")
+  unlink(link, recursive = FALSE)
+  dir.create(link)
+  writeLines("mine", file.path(link, "mine.txt"))
+
+  expect_warning(st$close(), class = "projectData_cleanup_warning")
+  expect_true(file.exists(file.path(link, "mine.txt")))
+  expect_true(file.exists(file.path(fx$src, "data", "example.rda")))
+  unlink(link, recursive = TRUE)
+  expect_no_warning(st$close())
+  expect_false(dir.exists(st$root))
+})
+
+test_that("a link that cannot be removed is reported without hiding the authoring error", {
+  skip_if_no_links()
+  local_clean_session()
+  fx <- local_source_pkg()
+  local_remove_stage_leftovers()
+  rec <- local_link_failure(fail_from = 2L)
+  testthat::local_mocked_bindings(remove_link = function(path) FALSE)
+
+  got <- capture_error_and_warnings(data_manifest_draft(fx$src))
+  expect_s3_class(got$error, "projectData_staging_error")
+  expect_match(conditionMessage(got$error), "No data was copied", fixed = TRUE)
+  expect_length(got$warnings, 1L)
+  expect_s3_class(got$warnings[[1]], "projectData_cleanup_warning")
+  expect_match(conditionMessage(got$warnings[[1]]), "projectData-stage-", fixed = TRUE)
+  expect_equal(rec$copies, 0L)
+  expect_true(file.exists(file.path(fx$src, "data", "example.rda")))
+})
+
+test_that("a staging directory that cannot be removed is reported without hiding the error", {
+  local_clean_session()
+  fx <- local_source_pkg()
+  local_remove_stage_leftovers()
+  rec <- local_link_failure()
+  testthat::local_mocked_bindings(remove_empty_dir = function(path) FALSE)
+
+  got <- capture_error_and_warnings(data_manifest_draft(fx$src))
+  expect_s3_class(got$error, "projectData_staging_error")
+  expect_length(got$warnings, 1L)
+  expect_s3_class(got$warnings[[1]], "projectData_cleanup_warning")
+  expect_equal(rec$copies, 0L)
+  expect_length(list.files(file.path(tempdir(), stage_dirs()), all.files = TRUE, no.. = TRUE), 0L)
+})
+
+test_that("after a failed cleanup of a successful view, a retry removes what remains", {
+  skip_if_no_links()
+  fx <- local_source_pkg()
+  local_remove_stage_leftovers()
+  view <- projectData:::authoring_view(fx$src)
+  testthat::with_mocked_bindings(
+    expect_warning(view$close(), class = "projectData_cleanup_warning"),
+    remove_link = function(path) FALSE
+  )
+  expect_true(dir.exists(view$root))
+  expect_no_warning(view$close())
+  expect_false(dir.exists(view$root))
+  expect_true(file.exists(file.path(fx$src, "data", "example.rda")))
 })

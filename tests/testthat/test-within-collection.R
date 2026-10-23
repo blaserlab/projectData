@@ -2,8 +2,8 @@
 
 # cohort_a records sample_metadata; cohort_b has an unknown mapping (no index
 # row) but actually produces the same name.
-dup_library <- function(extra = list(), extra_manifest = NULL) {
-  lib <- fixture_library()
+dup_library <- function(extra = list(), extra_manifest = NULL, env = parent.frame()) {
+  lib <- fixture_library(env)
   fixture_package(lib, "pddup", "0.1.0", lazy = FALSE,
     datasets = c(list(
       cohort_a = list(sample_metadata = "from-a"),

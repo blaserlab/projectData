@@ -241,3 +241,71 @@ test_that("on_open may open an independent resource; cached access reruns nothin
   expect_equal(log, c("multi", "only"))
   expect_equal(unique(data_catalog()$state[data_catalog()$resource %in% c("multi", "only")]), "ready")
 })
+
+# Identity-safe detachment -----------------------------------------------------
+
+search_position <- function(env) {
+  for (i in seq_along(search())) if (identical(as.environment(i), env)) return(i)
+  NA_integer_
+}
+
+# Puts an unrelated, same-named entry on the search path and removes exactly that
+# environment (by identity) when the test ends.
+local_same_named_entry <- function(name, pos, env = parent.frame()) {
+  e <- attach(NULL, pos = pos, name = name, warn.conflicts = FALSE)
+  assign("sentinel", "unrelated", envir = e)
+  withr::defer({
+    p <- search_position(e)
+    if (!is.na(p)) detach(pos = p)
+  }, envir = env)
+  e
+}
+
+test_that("data_detach() removes the owned facade even when another entry has its name", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  data_attach("pdmain", lib.loc = fx$lib)
+  owned <- projectData:::.state$facade$env
+  name <- projectData:::.state$facade$name
+  # placed in front, so that detaching by name would target it
+  other <- local_same_named_entry(name, pos = 2L)
+  expect_identical(search()[2:3], c(name, name))
+  expect_identical(search_position(owned), 3L)
+
+  data_detach()
+  expect_true(is.na(search_position(owned)))
+  expect_identical(search_position(other), 2L)
+  expect_identical(get("sentinel", envir = other), "unrelated")
+  expect_equal(sum(search() == name), 1L)
+  expect_null(projectData:::.state$facade$env)
+  expect_equal(nrow(data_collections()), 0L)
+})
+
+test_that("a partial detach leaves the facade, and a later full detach is still identity-safe", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  data_attach(c("pdmain", "pdref"), lib.loc = fx$lib, on_mask = "ignore")
+  owned <- projectData:::.state$facade$env
+  other <- local_same_named_entry(projectData:::.state$facade$name, pos = 2L)
+  data_detach("pdref")
+  expect_false(is.na(search_position(owned)))
+  data_detach("pdmain")
+  expect_true(is.na(search_position(owned)))
+  expect_false(is.na(search_position(other)))
+})
+
+test_that("unloading cleanup removes the owned facade by identity", {
+  local_clean_session()
+  fx <- shared_fixtures()
+  data_attach("pdmain", lib.loc = fx$lib)
+  owned <- projectData:::.state$facade$env
+  other <- local_same_named_entry(projectData:::.state$facade$name, pos = 2L)
+
+  projectData:::.onUnload(NULL)
+  expect_true(is.na(search_position(owned)))
+  expect_identical(search_position(other), 2L)
+  expect_identical(get("sentinel", envir = other), "unrelated")
+  # nothing left on the search path to remove a second time
+  expect_no_error(projectData:::.onUnload(NULL))
+  expect_identical(search_position(other), 2L)
+})

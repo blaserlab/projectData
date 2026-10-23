@@ -129,7 +129,7 @@ test_that("catalog and query operations do not invoke resource readers or adapte
   data_query("pdprov", lib.loc = lib)
   data_attach("pdref", lib.loc = fx$lib)
   data_attach("pdprov", lib.loc = lib)
-  data_catalog(); data_info("mat"); print(data_catalog())
+  data_catalog(); data_info("mat"); invisible(capture.output(print(data_catalog())))
   expect_length(n$log, 0)
   expect_equal(log$what(), character())
   expect_false("pdvaladp" %in% loadedNamespaces())

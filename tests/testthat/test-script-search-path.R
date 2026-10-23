@@ -36,8 +36,7 @@ run_child <- function(body, lib) {
 }
 
 search_path_library <- function(env = parent.frame()) {
-  lib <- fixture_library()
-  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  lib <- fixture_library(env)
   inner <- sprintf("projectData::data_get('inner_val', package = 'pdinner', lib.loc = %s)",
                    deparse(lib))
   # A separate collection: opening a resource of the collection being opened would re-register it

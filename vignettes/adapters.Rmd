@@ -163,7 +163,11 @@ callbacks work with, are relative to the **installed** package root, where
   so their object names stay unknown. This requires a file system and R session
   that can create symbolic links. If a link cannot be created, authoring fails
   with an error naming the entry and does not copy any data, since that could
-  duplicate a very large collection; existing manifests are left unchanged.
+  duplicate a very large collection; existing manifests are left unchanged. The
+  view is removed as it was made (its links, as links, then its directory),
+  without following or deleting what the links point to; if something cannot be
+  removed, a `projectData_cleanup_warning` names it and any authoring error is
+  still reported as such.
   Use an environment that supports links, or one of the next two kinds of root.
 * an **installed package** directory, used as is;
 * a **standalone resource directory**, used as is. This is the earlier
@@ -200,14 +204,11 @@ vapply(drafts, function(d) d$source, "")
 ```
 
 The `.rda` dataset is a standard dataset and needs no manifest entry; the
-tinymat is found by the adapter under `extdata/`. Edit the descriptors as
-ordinary lists, then write to the conventional location. For
-`<source>/inst/projectData/manifest.dcf` the default `root` is the package
-source, so both `data/` and `extdata/` paths resolve:
-
-A draft does not know which package supplies the loader, so say so if projectData
-should load the adapter on first access. Edit the descriptors as ordinary lists,
-then write:
+tinymat is found by the adapter under `extdata/`. A draft does not know which
+package supplies the loader, so say so if projectData should load the adapter on
+first access. Edit the descriptors as ordinary lists, then write them to the
+conventional location. For `<source>/inst/projectData/manifest.dcf` the default
+`root` is the package source, so both `data/` and `extdata/` paths resolve:
 
 ```{r authoring-write}
 drafts <- lapply(drafts, function(d) {
@@ -308,42 +309,42 @@ you hold can keep reading them after detachment. This says nothing about
 replacing or removing the installed package, which can break objects that
 reference installed files.
 
-## Sketch: migrating the existing monocle3/BPCells (CDS) workflow
+## Deferred: a monocle3/BPCells (CDS) adapter
 
-This is a sketch, **not exercised** by this vignette: monocle3 and BPCells are
-not dependencies of projectData and were not used to produce it. The tests
-contain an optional, skipped-when-unavailable check
-(`tests/testthat/test-integration-cds.R`) that restores a small real CDS through
-a test-local loader of this shape; it is not a shipped adapter. It found that
-monocle3's `load_monocle_objects()` copies the BPCells matrix into a new
-directory under `tempdir()`, and that monocle3 must be attached while it runs.
+Support for monocle3 CDS objects with BPCells matrices is **deferred**. There is
+no adapter for it in projectData, and nothing below has been run as part of
+this package: monocle3 and BPCells are not dependencies, and the check that
+used them lives in the development repository (`dev/integration/`), outside the
+package tests and the source tarball. The tiny disk-backed backend above is the
+working, tested adapter example.
+
+What earlier exploratory work with a test-local loader found, for whoever builds
+the adapter: monocle3's `load_monocle_objects()` copies the BPCells matrix into
+a new directory under `tempdir()`, so a restored CDS references a working copy
+and not the installed files, and monocle3 had to be attached while it ran. Those
+observations depend on the installed monocle3 and BPCells versions and must be
+checked again. The outline below is an untested sketch of the contract's shape,
+not code to copy.
 
 ```r
-# In a separate adapter package, e.g. blaseRtoolsAdapter (not part of projectData)
+# Hypothetical adapter package (not part of projectData); untested.
 cds_loader <- function() {
   projectData::data_loader(
-    "blaseRtools::cds",
+    "myCdsAdapter::cds",
     storage = "disk-backed",
-    needs_work_dir = FALSE,
     discover = function(root, context) {
-      dirs <- list.files(file.path(root, "extdata"), pattern = "^bpcells_matrix_dir$",
-                         recursive = TRUE, full.names = FALSE, include.dirs = TRUE)
-      # return descriptors only; do not load monocle3 here
-      lapply(dirs, function(d) list(resource = ..., source = ..., objects = ...))
+      # return descriptors from an explicit directory convention; load nothing
     },
-    validate = function(descriptor, root, context) file.exists(file.path(root, descriptor$source)),
+    validate = function(descriptor, root, context) {
+      file.exists(file.path(root, descriptor$source))
+    },
     open = function(descriptor, paths, context) {
-      # namespace-load only when needed; do not attach
-      cds <- monocle3::load_monocle_objects(directory_path = paths$source)
-      stats::setNames(list(cds), descriptor$objects)
+      # call the format's own restore function on paths$source
     }
   )
 }
 projectData_loaders <- function() cds_loader()
 ```
 
-The user's analysis keeps its bare names by designating the CDS data package as
-`primary`, and supplementary collections keep names such as `cds_main.reference`
-through `suffix`. Whether `load_monocle_objects()` needs a writable or relocated
-copy of the BPCells directory must be checked against the installed
-monocle3/BPCells versions.
+A user would then keep bare names by designating the CDS data package as
+`primary`, and reach supplementary collections through `suffix` aliases.

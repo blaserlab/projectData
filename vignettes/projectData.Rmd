@@ -63,8 +63,6 @@ installed. Nothing is attached unless you call this function.
 data_attach("rnaseqData", lib.loc = lib)
 ```
 
-Use the 
-
 ## 3. Use
 
 Use the objects by their ordinary names. The first use of an object reads it.
@@ -75,7 +73,8 @@ counts_rna
 ```
 
 The message names the resource and says it is opened from the installed package;
-projectData never installs packages. The same code works in a script after the `data_attach()` call.
+projectData never installs packages. The same code works in a script after the
+`data_attach()` call.
 
 Attach another package whenever you need it. Objects already in use are not
 affected.
@@ -182,8 +181,8 @@ collections are attached.
 
 ## Conflicts {#conflicts}
 
-When two attached collections define the same name, the name projectData will never resolve the name
-by order. Attaching still succeeds, and the catalog flags the conflict. Using the
+When two attached collections define the same name, projectData never resolves
+it by attachment order. Attaching still succeeds, and the catalog flags the conflict. Using the
 bare name fails with an error that lists the candidates. Use `id` to give each
 collection a name of your own:
 
@@ -195,7 +194,8 @@ counts_rna
 There are three ways to resolve conflicts, and they can be combined.
 
 **Per-object preference.** Choose the collection for a particular name. This is
-the right tool when an object from one package is always preferred over an object with the same name in another package:.
+the right tool when an object from one package is always preferred over an
+object with the same name in another package.
 
 ```{r prefer}
 data_prefer("counts_rna", "batch1")
@@ -209,20 +209,25 @@ meta_rna
 ```
 
 **A primary collection.** If one collection should win *all* its contested
-names, designate it. If an object is preferred from a non-primary collection, setting a per-object preference will override the primary designation. A primary collection can also be set when attaching:
-`data_attach("rnaseqData", id = "batch1", primary = "batch1")`.
+names, designate it. A per-object preference for a non-primary collection
+overrides the primary designation for that name. A primary collection can also
+be set when attaching: `data_attach("rnaseqData", id = "batch1", primary = "batch1")`.
 
 ```{r primary}
 data_primary("batch1")
 meta_rna
 ```
 
-**Suffix aliases and qualified access.**  Qualified access, `data_get(name, collection =)`, is the most robust way to access objects within scripts or functions.  This returns the value of the named object and also reaches the copy that lost a conflict.
+**Suffix aliases and qualified access.** Qualified access,
+`data_get(name, collection = )`, is the most robust way to access objects within
+scripts or functions. It returns the named object and also reaches the copy that
+lost a conflict.
+
 ```{r get}
 data_get("counts_rna", collection = "batch2")
 ```
 
-A suffix exposes every object in a collection as an alias of the form `<name><suffix>`.  Set it when you attach.  
+A suffix exposes every object in a collection as an alias of the form `<name><suffix>`. Set it when you attach.
 
 ```{r suffix}
 data_attach("rnaseqBatch2", lib.loc = lib, id = "batch2", suffix = ".batch2",
@@ -231,7 +236,7 @@ counts_rna.batch2
 ```
 
 Suffix aliases must be unique. A clash is reported when you attach, before
-anything is changed. 
+anything is changed.
 
 To clear decisions, use `data_prefer("counts_rna", NULL)`
 and `data_primary(NULL)`.

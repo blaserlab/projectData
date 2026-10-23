@@ -39,6 +39,18 @@ clear_env <- function(env) {
 
 sync_all <- function() sync_facade(resolve_names(.state))
 
+# Removes the facade environment from the search path by its current position,
+# found by identity. Detaching by name could remove an unrelated entry that
+# happens to share it. Returns whether the environment was removed; does nothing
+# when it is not on the search path.
+detach_facade <- function(env) {
+  pos <- facade_pos(env)
+  if (is.na(pos)) return(invisible(FALSE))
+  clear_env(env)
+  do.call("detach", list(pos = pos))
+  invisible(is.na(facade_pos(env)))
+}
+
 facade_pos <- function(env) {
   if (is.null(env)) return(NA_integer_)
   for (i in seq_along(search())) if (identical(as.environment(i), env)) return(i)
@@ -264,8 +276,8 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
 
   validate_state(cand)
   if (is.na(facade_pos(f$env))) {
-    do.call("attach", list(NULL, pos = f$pos, name = f$name, warn.conflicts = FALSE))
-    cand$facade$env <- as.environment(f$name)
+    cand$facade$env <- do.call("attach", list(NULL, pos = f$pos, name = f$name,
+                                              warn.conflicts = FALSE))
   }
   commit_state(cand)
   nm <- planned_names(.state)
@@ -285,7 +297,8 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
 #' references to opened resources are dropped, so the next access registers and
 #' opens them afresh. When no attached collection remains, the environment is
 #' removed from the search path. Only the environment projectData created is
-#' touched.
+#' touched: it is removed by its identity, so another search-path entry with the
+#' same name is left alone.
 #'
 #' @section Lifetime of opened objects:
 #' Detaching and replacing an installed package are different events.
@@ -322,8 +335,7 @@ data_detach <- function(collections = NULL) {
   validate_state(cand)
   commit_state(cand)
   if (!length(attached_collections(.state)) && !is.na(facade_pos(env))) {
-    clear_env(env)
-    do.call("detach", list(name = .state$facade$name, character.only = TRUE))
+    detach_facade(env)
     .state$facade$env <- NULL
   }
   invisible(ids)

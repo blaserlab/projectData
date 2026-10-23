@@ -20,7 +20,8 @@ This covers collections that are only registered (for example by
 references to opened resources are dropped, so the next access registers and
 opens them afresh. When no attached collection remains, the environment is
 removed from the search path. Only the environment projectData created is
-touched.
+touched: it is removed by its identity, so another search-path entry with the
+same name is left alone.
 }
 \section{Lifetime of opened objects}{
 

@@ -343,27 +343,44 @@ data_file_ext <- function(x) {
   ext
 }
 
-# The format utils::data() will use for `name` in a package's data/ directory,
-# decided from the small Rdata.rds map and file names only: nothing is loaded
-# or run. Mirrors data(): the lazy-load map wins; otherwise files whose names
-# contain `name` are ordered by extension precedence and the first whose full
-# name is `name.<supported extension>` is used. Returns "lazy", "script",
-# "serialized", "text", or NA when nothing would be found (data() then warns
-# and the opening reports it).
-selected_data_format <- function(data_dir, name) {
+# The file and format utils::data() will use for dataset `name` in a package's
+# data/ directory, decided from file names (and, for lazy-load packages, the
+# small Rdata.rds name map) only: nothing is loaded or run. This is the single
+# selection rule; inventory records its result and the built-in reader checks
+# against it, so provenance cannot disagree with what is opened. It mirrors
+# data(): a name in the lazy-load map wins; otherwise the first of the supported
+# extensions, in data()'s precedence order, for which a file named exactly
+# `<name>.<extension>` exists is used. A longer name that merely contains
+# `name` never matches.
+#
+# `files` are the file names in data/ and `lazy_names` the dataset names of the
+# lazy-load map (or NULL). Returns list(format, file, source): format is
+# "lazy", "script", "serialized" or "text"; `file` is the selected file name
+# and `source` its path relative to the package root ("data/Rdata.rdb" for
+# lazy datasets, which share one database). All are NA when nothing would be
+# found (data() then only warns, and opening reports it).
+select_data_from_files <- function(files, name, lazy_names = NULL) {
+  none <- list(format = NA_character_, file = NA_character_, source = NA_character_)
+  if (name %in% lazy_names) {
+    return(list(format = "lazy", file = "Rdata.rdb", source = "data/Rdata.rdb"))
+  }
+  candidate <- paste0(name, ".", data_extensions)
+  hit <- match(TRUE, candidate %in% files)
+  if (is.na(hit)) return(none)
+  ext <- data_extensions[[hit]]
+  list(format = switch(ext, R = , r = "script", RData = , rdata = , rda = "serialized", "text"),
+       file = candidate[[hit]], source = paste0("data/", candidate[[hit]]))
+}
+
+# Reads only the directory listing and, if present, the lazy-load name map.
+select_data_source <- function(data_dir, name) {
   map_file <- file.path(data_dir, "Rdata.rds")
-  if (file.exists(map_file) && name %in% names(readRDS(map_file))) return("lazy")
-  files <- list.files(data_dir)
-  files <- files[grepl(name, files, fixed = TRUE)]
-  ext <- data_file_ext(files)
-  files <- files[order(match(ext, data_extensions, nomatch = 100L))]
-  ext <- data_file_ext(files)
-  hit <- which(files == paste0(name, ".", ext) & ext %in% data_extensions)
-  if (!length(hit)) return(NA_character_)
-  switch(ext[[hit[[1]]]],
-         R = , r = "script",
-         RData = , rdata = , rda = "serialized",
-         "text")
+  lazy_names <- if (file.exists(map_file)) names(readRDS(map_file))
+  select_data_from_files(list.files(data_dir), name, lazy_names)
+}
+
+selected_data_format <- function(data_dir, name) {
+  select_data_source(data_dir, name)$format
 }
 
 # utils::data() runs library("utils") before sourcing an R script, which
@@ -386,6 +403,27 @@ without_implicit_utils <- function(expr) {
   expr
 }
 
+# The inventory recorded the source that data() would select. If the selection
+# now differs (a file with higher precedence appeared, or the recorded one is
+# gone), opening would silently read something other than the recorded
+# provenance, so it is refused. Only inventoried resources with a recorded
+# source are checked; a manifest that assigns the built-in reader a Source
+# states its own.
+check_selection_unchanged <- function(descriptor, sel, context) {
+  recorded <- descriptor$source
+  # No recorded source means none was located at registration (the index listed
+  # a dataset without a file): nothing was claimed, so there is nothing to
+  # contradict, and a file restored since is simply read.
+  if (!identical(descriptor$origin, "index") || is.na(recorded)) return(invisible())
+  if (identical(sel$source, recorded)) return(invisible())
+  pd_abort("The data file selected for dataset '", descriptor$resource, "' is now ",
+           if (is.na(sel$source)) "none" else paste0("'", sel$source, "'"),
+           ", but '", context$package, "' was registered with '", recorded,
+           "'. The installed data/ directory changed; re-register with ",
+           "data_attach(\"", context$package, "\", id = \"", context$collection,
+           "\", replace = TRUE).")
+}
+
 # Built-in loaders -----------------------------------------------------------
 
 register_builtin_loaders <- function() {
@@ -397,9 +435,9 @@ register_builtin_loaders <- function() {
         # startup lookup chain (not the global workspace or other attached
         # packages). Other formats just need a fresh output frame. The format
         # is the one data() will select; nothing is opened to decide it.
-        format <- selected_data_format(file.path(context$root, "data"),
-                                       descriptor$resource)
-        env <- if (identical(format, "script")) {
+        sel <- select_data_source(file.path(context$root, "data"), descriptor$resource)
+        check_selection_unchanged(descriptor, sel, context)
+        env <- if (identical(sel$format, "script")) {
           new.env(parent = script_lookup_env())
         } else {
           new.env(parent = baseenv())

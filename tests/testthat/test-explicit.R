@@ -162,7 +162,8 @@ test_that("a stale installation is detected for explicit and attached access", {
   expect_false(data_collections()$attached)
   expect_identical(n$log, "pdstale/a")
   data_attach("pdstale", lib.loc = lib, replace = TRUE)
-  expect_identical(b, "rebuilt")
+  # read from the facade itself: a global `b` would shadow the binding
+  expect_identical(get("b", envir = as.environment("projectData:data")), "rebuilt")
 })
 
 test_that("optional loaders and failure/retry behave as for attached access", {

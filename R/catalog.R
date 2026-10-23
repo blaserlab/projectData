@@ -64,9 +64,14 @@
 #' when a manifest resource declares no `Source`. Such a resource is still
 #' listed, with its recorded `object` names and `state` `unopened`, because the
 #' catalog never opens anything to check. The problem surfaces only on opening:
-#' a missing file raises an error naming the resource. Lazy-loaded datasets
-#' all share `source` `data/Rdata.rdb`, which is a database and not one file
-#' per dataset.
+#' a missing file raises an error naming the resource. When `data/` holds
+#' several files for one dataset name (for example `x.R` and `x.rda`), `source`
+#' is the file that [utils::data()] selects and that the built-in reader opens,
+#' by one shared rule, so the provenance describes what is read. If the
+#' selected file is later removed, opening fails with an error rather than
+#' falling back to another file; removing an unselected alternative changes
+#' nothing. Lazy-loaded datasets all share `source` `data/Rdata.rdb`, which is a
+#' database and not one file per dataset.
 #'
 #' `data_info()` returns the catalog rows for a name. `data_help()` explicitly
 #' opens the help page of the *original* topic in the source package

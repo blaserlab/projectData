@@ -8,8 +8,9 @@
 # no dataset values, executes nothing and copies no data: if a link cannot be
 # made, staging fails with an error rather than copying, because a recursive
 # copy of a large data collection is not lightweight. The view is removed
-# afterwards; cleanup only removes the links created by the current operation
-# and never touches or traverses their targets.
+# afterwards; cleanup only removes the links (and the then-empty staging
+# directory) created by the current operation, checks the result, and never
+# touches or traverses their targets.
 
 manifest_layouts <- c("auto", "installed", "source", "standalone")
 
@@ -64,18 +65,93 @@ make_link <- function(from, to) {
   isTRUE(suppressWarnings(file.symlink(from, to)))
 }
 
-# Builds the staged view of a source package.
+# The target of a link, or NA when `path` is not a link, does not exist, or the
+# platform cannot read links. (Sys.readlink() gives NA for a missing path and ""
+# for a non-link, and nzchar(NA) is TRUE, so both are normalized here.)
+link_target <- function(path) {
+  target <- Sys.readlink(path)
+  if (is.na(target) || !nzchar(target)) NA_character_ else target
+}
+
+# Whether `path` is still an entry of the file system, without following a
+# link: a dangling link counts, file.exists() alone would say it is gone.
+entry_exists <- function(path) {
+  !is.na(link_target(path)) || file.exists(path)
+}
+
+# Removes one link as a link: unlink(recursive = FALSE) does not descend into
+# what a link points to, and, unlike file.remove(), is meant for entries that
+# may be directories. The outcome is checked rather than assumed, because link
+# semantics differ by platform (removal of Windows directory links was not
+# tested). Returns whether the entry is gone. A separate function so tests can
+# force failure.
+remove_link <- function(path) {
+  unlink(path, recursive = FALSE, force = FALSE)
+  !entry_exists(path)
+}
+
+# Removes the staging directory, which the caller has verified is empty (so the
+# recursive flag, needed to remove any directory portably, deletes nothing).
+remove_empty_dir <- function(path) {
+  unlink(path, recursive = TRUE, force = FALSE)
+  !dir.exists(path)
+}
+
+# Whether `to` is still the link this operation made to `from`. Where the
+# platform can read links, anything else (a real file or directory, or a link
+# to another target) is not ours and is left alone.
+is_own_link <- function(to, from) {
+  target <- link_target(to)
+  if (!is.na(target)) return(identical(target, from))
+  # No readable link target: a real entry on a platform that can read links is
+  # not ours; elsewhere the record of this operation is all there is.
+  !(.Platform$OS.type == "unix" && entry_exists(to))
+}
+
+# Builds the staged view of a source package. `close()` removes exactly what
+# this call created: the links it recorded, then the staging directory if it is
+# empty. It never deletes a link target, never removes an entry it did not
+# create, checks every removal, and reports what remains as a warning (an error
+# raised during cleanup could hide the error that caused it). It is safe to
+# call repeatedly.
 stage_source_layout <- function(src) {
   stage <- tempfile("projectData-stage-")
-  dir.create(stage)
-  linked <- character()
-  # Links are removed as links (never recursively), then the now-empty staging
-  # directory; targets in the source tree are never followed.
+  if (!dir.create(stage)) pd_abort("Could not create a staging directory under ", dirname(stage), ".")
+  linked <- list()
+  stage_left <- TRUE
   close <- function() {
-    for (p in linked) file.remove(p)
-    linked <<- character()
-    if (!length(list.files(stage, all.files = TRUE, no.. = TRUE))) file.remove(stage)
-    invisible(NULL)
+    left <- character()
+    keep <- list()
+    for (l in linked) {
+      if (!is_own_link(l$to, l$from)) {
+        left <- c(left, l$to)
+        keep[[length(keep) + 1L]] <- l
+      } else if (entry_exists(l$to) && !remove_link(l$to)) {
+        left <- c(left, l$to)
+        keep[[length(keep) + 1L]] <- l
+      }
+    }
+    linked <<- keep
+    if (stage_left && !length(keep)) {
+      if (!dir.exists(stage)) {
+        stage_left <<- FALSE
+      } else if (length(list.files(stage, all.files = TRUE, no.. = TRUE))) {
+        left <- c(left, stage)
+      } else if (remove_empty_dir(stage)) {
+        stage_left <<- FALSE
+      } else {
+        left <- c(left, stage)
+      }
+    } else if (stage_left) {
+      left <- c(left, stage)
+    }
+    if (length(left)) {
+      pd_warn("Could not remove temporary staging entries created for source-tree ",
+              "authoring (nothing outside them was touched; the data were not copied or ",
+              "deleted): ", paste(unique(left), collapse = ", "),
+              ". Remove them manually.", class = "projectData_cleanup_warning")
+    }
+    invisible(!length(left))
   }
   ok <- FALSE
   on.exit(if (!ok) close())
@@ -104,12 +180,13 @@ stage_source_layout <- function(src) {
                "(with `layout = \"installed\"` or `\"standalone\"`).",
                class = "projectData_staging_error")
     }
-    linked <- c(linked, to)
+    linked[[length(linked) + 1L]] <- list(to = to, from = entries[[nm]])
   }
+  out <- list(root = normalizePath(stage, winslash = "/", mustWork = TRUE), close = close,
+              allowed = normalizePath(c(stage, data_dir, inst)[c(TRUE, dir.exists(data_dir), dir.exists(inst))],
+                                      winslash = "/", mustWork = TRUE))
   ok <- TRUE
-  list(root = normalizePath(stage, winslash = "/", mustWork = TRUE), close = close,
-       allowed = normalizePath(c(stage, data_dir, inst)[c(TRUE, dir.exists(data_dir), dir.exists(inst))],
-                               winslash = "/", mustWork = TRUE))
+  out
 }
 
 # The root, context and path boundary used by authoring and validation.

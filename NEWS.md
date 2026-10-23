@@ -1,47 +1,127 @@
-# projectData (development version)
+# projectData 0.0.0.9005 (development version)
 
-* Revision cycle 3, issue 3.3: the standard-startup lookup chain of issue 2.5 is now built only when the selected dataset is an `.R`/`.r` script. Previously the built-in reader constructed it (with its deferred export bindings) for every standard resource, including `.rda`, lazy-load and text datasets, although only scripts run code; the issue 2.5 statement that it is built only for script resources was therefore inaccurate and is now true. The format is determined before opening by one internal selector, `selected_data_format()`, that mirrors `utils::data()` from metadata and file names only: a name in the lazy-load map `Rdata.rds` wins; otherwise files whose names contain the dataset name are ordered by `data()`'s extension precedence (`R`, `r`, `RData`, `rdata`, `rda`, then tables, then csv) and the first file named exactly `<dataset>.<supported extension>` decides. So `x.R` beats `x.rda` and `x.csv`, and `x2.R` does not affect dataset `x`. Non-script datasets get a plain output environment. Actual loading still goes through `utils::data()`, so selection itself is unchanged; script lookup, output isolation, the search-path guarantees of 3.2, caching, sibling objects, installation selection, mapping recovery and retry are unchanged. Each script opening builds its own chain (nothing mutable is cached globally), and inventory, registration, attachment and catalog operations build none. Regression tests count calls to `script_lookup_env()` per format, repeated access, independent chains for distinct scripts, coexisting script and serialized files, and failure/retry. `fixture_package()` gains `data_files` for extra files under `data/`. No new public API.
+## Changes in this version
 
-* Revision cycle 3, issue 3.2: opening a script dataset no longer leaves `package:utils` attached when it was detached beforehand. `utils::data()` calls `library("utils")` before sourcing an R script, which is independent of the controlled lookup environment of issue 2.5. The built-in reader still delegates to `utils::data()` (so dataset selection and format precedence are unchanged) and now detaches `utils` on exit, success or error, only if it was absent when the call started. A preexisting attachment and its position are untouched, nested openings neither leak nor remove it, and no other search-path entry is restored; `library()`, `utils::data()` and namespaces are not masked or modified. Limit: a script that itself calls `library(utils)` while `utils` is detached cannot be distinguished from `data()`'s attachment and is cleaned up too; other deliberate session changes by scripts are not undone. Serialized and lazy data are unchanged. New regression tests use fresh R subprocesses.
+* One rule now selects the file behind a dataset. For `data/` files, the
+  built-in reader and the inventory both use the selection `utils::data()`
+  makes: a name in the lazy-load map wins; otherwise the first supported
+  extension in `data()`'s precedence order (`R`, `r`, `RData`, `rdata`, `rda`,
+  then tables, then csv) for which `<dataset>.<extension>` exists. Previously
+  inventory recorded whichever matching file was listed last, so with both
+  `dual.R` and `dual.rda` the catalog could name the `.rda` while the script was
+  opened, and removing the unused `.rda` could block retrieval. Now catalog
+  `source` and the first-access message name the file actually read, lazy-load
+  datasets still share `data/Rdata.rdb`, and removing an unused alternative has
+  no effect. If the selected file is removed, opening fails with an error naming
+  it and never falls back to another file; if a file with higher precedence has
+  appeared since registration, opening is refused with a request to re-register
+  (`replace = TRUE`) instead of silently reading something other than the
+  recorded source (a dataset registered with no located file records no source,
+  so a file restored later is simply read). Selection uses the directory listing
+  and the small lazy-load map only. Files whose extension `data()` does not understand (for example
+  `x.rda.gz`) are now reported as unsupported instead of being inventoried.
+* Cleanup of the temporary view used to author against a package source tree is
+  portable and checked. Links are removed as links and the verified-empty
+  staging directory with `unlink()` instead of `file.remove()`; only entries
+  created by the current operation are removed, and a link that was replaced by
+  something else, or a directory that gained foreign files, is left in place.
+  Link targets are never followed or deleted. Every removal is checked, and a
+  failure is reported with a `projectData_cleanup_warning` naming what remains,
+  without replacing the authoring error that triggered the cleanup. Cleanup is
+  safe after partial staging, after success, and when repeated. Nothing is ever
+  copied. This was developed and tested on Linux; it has not been run on
+  Windows.
+* The search-path environment that `data_attach()` creates is now removed by
+  identity (its current position) in `data_detach()` and when the package is
+  unloaded, and is captured by identity when it is attached. An unrelated
+  search-path entry with the same name is left alone.
+* Adapter work directories skip names that already exist, so reloading the
+  package inside one R session no longer collides with directories made before.
+* Package metadata: authors, maintainer and copyright holder are filled in from
+  information in the repository (see `DESCRIPTION`); README, `DESCRIPTION` and
+  `LICENSE` agree on the MIT license. The optional monocle3/BPCells check moved
+  to `dev/integration/`, outside the package tests and the source tarball.
+  Minimum versions of the test packages are declared (testthat 3.2.0 for
+  `local_mocked_bindings()`, withr, tools), and tests remove the libraries and
+  scratch files they create.
 
-* Revision cycle 3, issue 3.1: source-tree manifest authoring no longer falls back to a recursive copy when a link cannot be created. Staging the installed-shaped view of a package source tree (links to `data/` and each top-level `inst/` entry) now fails with a `projectData_staging_error` naming the source entry, stating that no data was copied, and pointing to a linking-capable environment or an installed package / explicitly prepared installed-layout root (`layout = "installed"` or `"standalone"`), which need no staging. Previously drafting, writing and validating could each copy a whole data collection into temporary storage. On failure only the links created by that operation (and the then-empty staging directory) are removed, as links and never recursively, so source targets and anything a nested link points to are neither followed nor deleted; existing manifests are untouched, also with `overwrite = TRUE`. Successful staging, installed-relative `Source` paths, source-package context, containment checks and metadata-only discovery are unchanged. Platform limitation: source authoring needs symbolic-link support (e.g. not unprivileged Windows without developer mode); an alternative lightweight link mechanism may be considered later. No new arguments or API. Help pages and the adapters vignette document this, and the earlier claim that copies were made "only if links cannot be made" is removed.
+## Behavior of this version
 
-* Revision cycle 2, issue 2.6: the catalog describes a ready resource with the loader metadata from its successful opening instead of the current loader registry. On success the resource record keeps a small internal snapshot (loader id, contract version, storage classification; no functions or namespace). `storage` for a `ready` resource comes from it, so removing a loader no longer turns a disk-backed object's storage into `"unknown"`, and replacing it with a `"memory"` loader no longer relabels the cached object; nothing is reopened or revalidated. Unopened and failed resources still report the currently registered loader's declaration (`"unknown"` if none). `loader_status` still reflects current availability only, and `loader`, `origin` and the manifest/discovery declaration are not rewritten. A failed attempt keeps no snapshot; a successful retry records the loader used. An opening with a mapping mismatch counts as opened and keeps its snapshot. No new catalog columns. Documentation of `?data_catalog` and `?data_loader_add` distinguishes loader availability from the storage of cached objects.
+### Attaching and retrieving
 
-* Revision cycle 2, issue 2.5: script datasets (`data/*.R`) can now use the standard startup packages unqualified. The built-in dataset reader still calls `utils::data()`, but the script's output environment now has a lookup chain of the fixed set stats, graphics, grDevices, utils, datasets, methods, then `baseenv()` (the order of an ordinary R startup), so `head()`, `model.matrix()` or `predict()` work without `pkg::`. The set does not depend on `options("defaultPackages")`, startup profiles or the search path. `.GlobalEnv`, projectData's attached data environment and other attached packages are excluded from ordinary lookup; other packages' functions must still be qualified. Exports are lazy promises for `getExportedValue()` held in environments separate from the outputs, so nothing is attached to the search path, package datasets are not forced, function environments and method dispatch are unchanged, and lookup bindings are never returned as dataset objects. The chain is built only when a script resource is opened. Limits: `Autoloads` is not included, and scripts can still reach the session through `library()`, `attach()` or `globalenv()`; this is not a security sandbox. `fixture_package()` gains `code`/`exports`; tests replace the old "unqualified `head()` fails" expectation.
+* `data_attach()` registers installed data packages (metadata only) and
+  attaches them in one step as deferred active bindings in an environment named
+  `projectData:data`. Nothing is attached when projectData loads. Objects are
+  read on first use, after a message (`data_config(messages = )`).
+* `data_get(name, package = )` registers the package automatically if needed
+  and returns the object without attaching anything; explicit and attached
+  access share one resource cache. `data_query()` looks at packages without
+  remembering them, `data_detach()` removes attached collections and forgets
+  every registration, attached or not. It never deletes files.
+* Name conflicts are never resolved by attachment order. Use a primary
+  collection (`data_primary()`), per-object preferences (`data_prefer()`),
+  suffix aliases or qualified `data_get(name, collection = )`. Resolution uses
+  names only.
+* Installed packages are resolved once, with their installation identity; if the
+  installation changes before an object is opened, opening fails and asks for
+  `replace = TRUE`.
 
-* Revision cycle 2, issue 2.3: reading, standalone validation (`data_manifest_validate()`) and writing (`data_manifest_write()`) now enforce the same manifest-wide rules through shared code, so a hand-written manifest is accepted or rejected exactly as a programmatically authored one. Declaring a resource twice is an error whether the records agree or not (`projectData_manifest_error`). The same object name in distinct resources of one manifest is an error naming the competing resources (`projectData_duplicate_object`, from the `check_unique_objects()` rule of issue 2.2), so it no longer surfaces only when a collection is assembled; identical names in separate collections remain valid. `Options` entries are `key=value` separated by `;`: surrounding whitespace is trimmed, the first `=` splits key from value (values may contain `=`, including trailing ones, which were previously truncated), and duplicate keys (also after trimming, e.g. `work_copy=true; work_copy=false`), empty keys, empty values, entries without `=` and stray `;` are errors naming the resource and key. Descriptor checks also reject duplicate or empty option names, for every entry point. Checks use declarations only: nothing is opened or run, and an unregistered loader still allows structural validation (loader-level validation is skipped, and the writer reports it). The DCF format and the writer's additional serialization limits are unchanged and documented as separate from the semantic rules. `?data_manifest_validate` states that standalone validation is structural and path-based plus registered-loader `validate()`, not a check of the data or of the collection after assembly.
+### Opening, caching, failure
 
-* Revision cycle 2, issue 2.2: object names are unique across distinct resources within a collection after `data_inspect()` as well as at assembly. Previously a resource with an `unknown` mapping could be inspected into a name another resource of the same collection already owned. One metadata-only validator (`check_unique_objects()`) now serves initial assembly, every proposed state (so inspection of attached and unattached collections, including those registered by `data_get(package = )`) and, defensively, `get_object()`, which never picks the first of several owners. A collision raises `projectData_duplicate_object` naming the collection, the object and the competing resource ids, and changes nothing: object table, facade bindings, preferences and attachment are kept. Resources opened during the rejected inspection stay `ready` and cached (a rejected mapping is not a loader failure). Several resources inspected together are validated as one update, so a valid coordinated correction succeeds. Identical names in separate collections keep following the conflict rules. `?data_inspect` and the adapters vignette document this.
+* A resource is the loadable unit and can produce several objects; aliases and
+  siblings share one canonical opening. Opening is guarded against reentrancy;
+  a failed resource stays failed until `data_retry()`. `on_open` runs inside
+  that guard.
+* Object names recorded at registration are unchecked until a resource is
+  opened. `data_get()` is strict about a missing object; `data_inspect()`
+  replaces the recorded mapping with the observed names (rejecting duplicates
+  within a collection, atomically).
+* Script datasets (`data/*.R`) run only on first access, in a fresh output
+  environment whose enclosing lookup chain is the fixed set of standard startup
+  packages (stats, graphics, grDevices, utils, datasets, methods, base) and
+  excludes the global workspace and attached packages. The chain is built only
+  for script datasets. `utils` is detached again after `utils::data()` when it
+  was not attached beforehand. See `?data_attach`.
 
-* Revision cycle 2, issue 2.1: manifest authoring now works the same way for package source trees and installed packages. Previously `inst/` was the recommended root, which resolved `extdata/...` but missed `data/` (so standard datasets were not recognized and `data/example.rda` could not be a `Source`), while the package directory resolved `data/...` but not `extdata/...`. `data_manifest_draft()`, `data_manifest_write()` and `data_manifest_validate()` accept a package source tree (a directory with a `DESCRIPTION`) as `root`. projectData builds a temporary view with the installed shape (links to `data/` and each top-level `inst/` entry; copies only if links cannot be made) and passes it to adapter `discover()` and `validate()`, so callbacks still receive paths relative to the root, exactly as for an installed package. Manifest `Source` stays installed-relative (`data/example.rda`, `extdata/counts.tinymat`), never absolute and never `inst/`-prefixed. Standard source datasets are recognized from file names (object names stay unknown), so adapter claims on them follow the usual precedence rules. Nothing is installed, loaded or executed, and `data/` and `inst/` are not modified; resolved files must remain inside the package's `data/` and `inst/`. The new `layout` argument (`"auto"`, `"installed"`, `"source"`, `"standalone"`) overrides detection (`Meta/package.rds` means installed, a `DESCRIPTION` with a `Package` field means source, anything else standalone). The default `root` of `data_manifest_write()` and `data_manifest_validate()` for `<source>/inst/projectData/manifest.dcf` is now the package source rather than `inst/`.
-  * Contract change, context during authoring: `package` and `version` come from `DESCRIPTION` for a source tree and from installed metadata for an installed package; `library` is `NA` for a source tree (it is not installed). A standalone directory no longer gets its basename as `package` (and `inst/` no longer reports package `"inst"`): `package`, `version` and `library` are `NA`. Passing `inst/` explicitly remains supported as a standalone root. Collection contexts at opening are unchanged.
-  * Help pages and the "Writing a projectData adapter" vignette document the root and layout convention and the context fields, with a complete source-package example.
+### Catalog and provenance
 
-* New `data_manifest_draft()` and `data_manifest_write()` for authoring manifests. The draft asks already registered adapters what they would claim under a root (metadata only; nothing is opened or registered) and leaves out, with a `projectData_draft_conflict` warning and a `conflicts` attribute, resources that a manifest must decide (ambiguous claims, claims on standard datasets) unless `loaders =` names the winner. The writer validates descriptors as `data_manifest_validate()` does, reports when loader-level validation was skipped because the loader is not registered, rejects anything the DCF format cannot hold (per-object metadata that differs, `;`/`=` in options, commas in object names, line breaks), verifies the text reads back identically, and writes atomically. It never writes inside an installed package and never overwrites without `overwrite = TRUE`. The vignette "Writing a projectData adapter" gains an authoring section.
+* `data_catalog()` is metadata only: it never opens a resource or inspects
+  values. Columns include `origin` (`index`, `adapter`, `manifest`), `mapping`
+  (`recorded`, `unknown`, `verified`, `mismatch`), `loader_status`, `storage`
+  and `state`. `storage` of a ready resource is the snapshot taken when it was
+  opened, so later loader changes do not relabel it.
 
-* Provenance, loader availability and opening messages are more precise. The catalog gains `origin` (`index`, `adapter` or `manifest`: how the resource was discovered; never rewritten) and `loader_status` (`registered`, `unresolved`, `adapter-error`, `unavailable`). `mapping` now only says whether names were checked: `recorded` (replaces `index` and `declared`), `unknown`, `verified` (opened or inspected; replaces `observed`) or `mismatch`. `unresolved` means an adapter package is installed but has not been loaded or checked, so it is not reported as ready; failures to resolve one (missing export, failing or malformed declaration, absent loader id) now name the adapter export and are recorded as `adapter-error`, and `state` is `unavailable-loader` for it. Catalog and query operations still load no adapter and open no resource. The first-access message no longer says that nothing is downloaded, since loaders and data scripts can do anything; it says the resource is opened from the installed package and that projectData does not install packages.
+### Loaders and adapters
 
-* The `on_open` callback now runs inside the resource's opening guard and failure handling. Access from the callback to the resource being opened (directly, by alias or via a sibling object) gives a reentrancy error instead of reentering the callback, and an uncaught callback error marks the resource `failed` without running the reader; `data_retry()` retries. Callback frequency and caching are unchanged.
+* `data_loader()` defines contract version 1 (`discover`, `validate`, `open`);
+  `data_loader_add()` and `data_loader_adapter()` register loaders atomically,
+  and nothing is installed automatically. `validate` receives the same context
+  as `open` and runs before every uncached opening. `projectData::rds` and
+  `projectData::dataset` are built in.
+* Adapter claims on standard datasets are ignored with a warning
+  (`data_config(ignored_claims = )`); a manifest entry assigns such a resource to
+  a specialized reader. Ambiguous adapter claims are errors.
+* Disk-backed objects: detaching never deletes backing files; an object that
+  references installed files can still break if the installation is replaced or
+  removed. Adapters state whether they return installed-file references or a
+  working copy (`needs_work_dir`).
 
-* Lifetime guarantees for opened objects are stated precisely. Detaching or cleaning up registrations never deletes backing files, so objects you hold can keep reading them; this is not a guarantee about replacement or removal of the installed package, which can break disk-backed objects that reference installed files. Working copies give independence only if the adapter restores all references to them, and last as long as the working directory. The earlier "objects already opened are unaffected" wording in help pages and the stale-installation error is replaced, and `?data_loader` documents adapter responsibilities (portable paths, read-only installs, work directories, keeping backing files available, stating installed-vs-working-copy). New tests read through retained objects after detaching (attached and `data_get(package = )` paths), check backing files are byte-identical, and show that removing the installation breaks an installed-file reference but not a work copy. An optional real monocle3/BPCells check (skipped when unavailable) is added in `test-integration-cds.R`; it uses a test-local loader, not a shipped adapter, and found that monocle3 copies the matrix to a session working copy.
+### Manifests
 
-* Internal registration and attachment are separated again, but registration stays automatic, so the user workflow is still one step. `data_get()` gains `package` (and `lib.loc`): it registers the package's collection if necessary (metadata only) and returns the requested object without attaching anything or changing collections that are already attached, much as `package::object` does for exported data. It still opens the requested resource. Explicit and attached access share one resource cache, in either order, and `data_attach()` reuses an existing registration. Package-qualified retrieval ignores primary, preferences and suffixes; unqualified retrieval and its ambiguity errors are unchanged. `data_collections()` gains an `attached` column and `data_catalog()` shows `unattached` bindings. `data_detach()` also forgets registrations that were never attached (dropping their cached references); it never deletes files.
+* An optional versioned DCF file, `inst/projectData/manifest.dcf`, declares
+  loaders and mappings as data (never code). Reading, `data_manifest_validate()`
+  and `data_manifest_write()` apply the same rules: one declaration per resource,
+  unique object names across resources, strictly parsed `Options`.
+* `data_manifest_draft()` and `data_manifest_write()` author manifests from the
+  registered adapters' discovery. `root` can be a package source tree (needs
+  symbolic links, see above), an installed package, or a standalone directory;
+  `Source` paths are always installed-relative. Existing manifests are never
+  overwritten without `overwrite = TRUE`, and nothing is written inside an
+  installed package.
 
-* Adapter contract: `validate()` now receives the same context as `open()` (`collection`, `package`, `version`, `library`, `root`, `resource`) from one shared helper, and runs before every uncached opening attempt against the loader actually selected, including loaders registered after the collection or resolved automatically on first access. A rejection marks the resource `failed` (class `projectData_validation_failed`) without calling `open`; `data_retry()` retries. `data_loader_adapter()` and loader registration are atomic: declarations are fully checked (structure, duplicate ids, registry collisions) before anything is registered.
-* `data_config(ignored_claims = )` sets how ignored adapter claims on standard datasets are reported: `"warn"` (default), `"message"` or `"silent"`. Ambiguous adapter collisions remain errors.
-* Discovery collisions are now resolved before they are rejected. A manifest entry replaces all competing candidates for its resource (so it can resolve adapter-versus-adapter ambiguity or assign a standard dataset to a specialized reader). Without a manifest entry, resources in the standard data inventory stay with the built-in reader and adapter claims on them are ignored with a `projectData_ignored_claim` warning, rather than failing. Adapter-versus-adapter collisions on other resources still fail until a manifest decides. Duplicate manifest records for one resource are rejected with the loaders named.
-* `data_inspect()` can now correct wrong object mappings. Opening a resource no longer fails when the loader's outputs do not match the recorded names; only a loader error or an empty result is an opening failure. `data_get()` stays strict: an absent object gives an error naming the resource, the expected object and the observed names, and points to `data_inspect()`. Inspection replaces the mapping with the observed names (complete or partial mismatches), and the catalog `mapping` column gains `mismatch` for recorded names a ready resource did not produce. Opened resources stay cached and shared.
+### Not included
 
-# projectData 0.0.0.9001
-
-* Script-based package datasets (`data/*.R`) now load. The built-in dataset loader evaluates them in an isolated environment whose parent is `baseenv()` (previously `emptyenv()`, which could not resolve `<-` or any function). Scripts can use base functions only; they cannot see the global workspace or attached packages, and must qualify other functions with `pkg::` (see the "Script datasets" section of `?data_attach`). Inventory and attachment still never run scripts.
-
-# projectData 0.0.0.9000
-
-* First working core. `data_attach()` registers and attaches packages in one step; `data_query()` looks at packages without changing session state; `data_detach()` removes and forgets collections; `data_get()` accepts several names.
-* inventory of installed data packages without reading data
-  (lazy and non-lazy), attached collections, primary/preference/suffix-alias conflict
-  handling, optional facade, catalog/info/help, resource-level caching,
-  failure/retry, manifests, loader adapter interface, tiny disk-backed example
-  backend, vignettes and manual IDE reproduction.
+* A monocle3/BPCells adapter is deferred; the tiny disk-backed backend in
+  `inst/examples/tinydisk.R` is the tested adapter example.
+* ExperimentHub or other remote retrieval is a possible extension, not
+  implemented.

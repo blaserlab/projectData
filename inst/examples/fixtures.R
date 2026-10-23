@@ -26,6 +26,7 @@ fixture_package <- function(lib, name, version = "0.1.0", lazy = TRUE,
                             scripts = list(), script_docs = NULL,
                             code = NULL, exports = character(), data_files = list()) {
   src <- file.path(tempfile("pd-src-"), name)
+  on.exit(unlink(dirname(src), recursive = TRUE), add = TRUE)
   dir.create(file.path(src, "man"), recursive = TRUE)
   writeLines(c(paste("Package:", name), "Title: Fixture", paste("Version:", version),
                "Description: Synthetic fixture.", "License: GPL-3", "Author: fixture",

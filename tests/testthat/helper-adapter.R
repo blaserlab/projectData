@@ -33,6 +33,7 @@ adapter_source <- c(
 
 install_adapter_package <- function(lib, name = "pdvaladp") {
   src <- file.path(tempfile("pd-src-"), name)
+  on.exit(unlink(dirname(src), recursive = TRUE), add = TRUE)
   dir.create(file.path(src, "R"), recursive = TRUE)
   writeLines(c(paste("Package:", name), "Title: Fixture adapter", "Version: 0.1.0",
                "Description: Synthetic fixture.", "License: GPL-3", "Author: fixture"),
@@ -72,7 +73,7 @@ validation_fixtures <- local({
   cache <- NULL
   function() {
     if (is.null(cache)) {
-      cache <<- fixture_library()
+      cache <<- shared_library()
       install_validation_fixtures(cache)
     }
     cache

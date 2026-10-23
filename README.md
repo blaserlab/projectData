@@ -7,8 +7,7 @@ explicit choices (a primary collection, per-object preferences, optional suffix
 aliases), records provenance, and provides a loader interface for resources that
 need format-specific restoration.
 
-Status: development version, not submitted to CRAN. Author, maintainer and
-license details in `DESCRIPTION` are placeholders pending confirmation.
+Status: development version (see `NEWS.md`), not submitted to CRAN.
 
 ## Quick start
 
@@ -44,3 +43,13 @@ packages (including from tarballs) is separate from attaching them.
   implemented.
 * IDE completion or previews may force deferred bindings; see
   `inst/ide-repro/`.
+* Authoring manifests against a package source tree needs a file system that
+  can create symbolic links; installed packages and prepared directories do not.
+* Monocle3/BPCells (CDS) support is deferred. It would be a separate adapter
+  package; the core has no dependency on either. The vignette `adapters` shows
+  a working adapter with the small disk-backed example backend.
+
+## License
+
+MIT, copyright holder Brad Blaser. `DESCRIPTION` declares `MIT + file LICENSE`;
+`LICENSE` holds the year and copyright holder, and `LICENSE.md` the full text.

@@ -27,11 +27,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: First Last \email{first.last@example.com}
+\strong{Maintainer}: Brad Blaser \email{bradley.blaser@osumc.edu} (\href{https://orcid.org/0000-0002-3168-5423}{ORCID}) [copyright holder]
 
 Authors:
 \itemize{
-  \item First Last \email{first.last@example.com}
+  \item Brad Blaser \email{bradley.blaser@osumc.edu} (\href{https://orcid.org/0000-0002-3168-5423}{ORCID}) [copyright holder]
 }
 
 }

@@ -19,9 +19,5 @@
 }
 
 .onUnload <- function(libpath) {
-  env <- .state$facade$env
-  if (!is.null(env) && !is.na(facade_pos(env))) {
-    clear_env(env)
-    try(do.call("detach", list(name = .state$facade$name, character.only = TRUE)), silent = TRUE)
-  }
+  try(detach_facade(.state$facade$env), silent = TRUE)
 }

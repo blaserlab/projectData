@@ -148,7 +148,8 @@ test_that("relocating the library: backing files follow the registered location"
 
 test_that("manifest validation rejects unsafe paths, bad versions and duplicates", {
   mf <- function(...) {
-    root <- tempfile("root"); dir.create(file.path(root, "projectData"), recursive = TRUE)
+    root <- withr::local_tempdir(.local_envir = parent.frame())
+    dir.create(file.path(root, "projectData"), recursive = TRUE)
     writeLines(c(...), file.path(root, "projectData", "manifest.dcf"))
     dir.create(file.path(root, "extdata")); saveRDS(1, file.path(root, "extdata", "x.rds"))
     file.path(root, "projectData", "manifest.dcf")
@@ -237,8 +238,7 @@ test_that("script-based datasets run once, on first access, in an isolated envir
 # Startup-package lookup for script datasets (issue 2.5) -----------------------
 
 std_script_library <- function(env = parent.frame()) {
-  lib <- fixture_library()
-  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  lib <- fixture_library(env)
   fixture_package(lib, "pdhelper", "0.1.0",
     code = "pdhelper_fn <- function() 'from-helper'", exports = "pdhelper_fn")
   fixture_package(lib, "pdstd", "0.1.0", lazy = FALSE,
@@ -591,7 +591,7 @@ test_that("discovery and manifest resolution do not open resources", {
 
 # Issue 2.6: storage of a ready resource comes from its opening, not the registry.
 local_tinydisk_lib <- function(names, env = parent.frame()) {
-  lib <- fixture_library()
+  lib <- fixture_library(env)
   fixture_package(lib, "pdsnap", lazy = FALSE, datasets = list(),
     files = stats::setNames(
       lapply(names, function(i) function(p) tinymat_write(matrix(as.double(1:6), 2, 3), p)),
@@ -743,10 +743,9 @@ local_lookup_counter <- function(env = parent.frame()) {
 }
 
 format_library <- function(env = parent.frame()) {
-  lib <- fixture_library()
-  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  lib <- fixture_library(env)
   fixture_package(lib, "pdfmtlazy", lazy = TRUE,
-                  datasets = list(lz = list(lz_obj = "lazy")))
+                  datasets = list(lz = list(lz_obj = "lazy"), lz2 = list(lz2_obj = "lazy2")))
   fixture_package(lib, "pdfmt", lazy = FALSE,
     datasets = list(ser = list(ser_obj = "serialized"),
                     dual = list(dual_obj = "serialized"),
@@ -858,5 +857,135 @@ test_that("inventory, attachment and catalog build no lookup chain for any forma
   data_attach(c("pdfmtlazy", "pdfmt"), lib.loc = lib)
   invisible(data_catalog())
   invisible(capture.output(print(data_catalog())))
+  expect_equal(calls$n, 0L)
+})
+
+# Dataset selection is one rule for inventory and opening --------------------
+
+test_that("the selector applies data() precedence to file names alone", {
+  sel <- function(files, name, lazy = NULL) {
+    projectData:::select_data_from_files(files, name, lazy)[c("format", "source")]
+  }
+  expect_equal(sel(c("x.rda", "x.R"), "x"), list(format = "script", source = "data/x.R"))
+  expect_equal(sel(c("x.rda", "x.r"), "x"), list(format = "script", source = "data/x.r"))
+  expect_equal(sel(c("x.csv", "x.rda"), "x"), list(format = "serialized", source = "data/x.rda"))
+  expect_equal(sel(c("x.csv", "x.txt"), "x"), list(format = "text", source = "data/x.txt"))
+  expect_equal(sel(c("x.csv.gz", "x.tab.xz"), "x"), list(format = "text", source = "data/x.tab.xz"))
+  # longer names, and names containing the dataset name, never interfere
+  expect_equal(sel(c("x2.R", "xx.rda", "ax.R", "x.rda.bak"), "x")$format, NA_character_)
+  expect_equal(sel(c("x2.R", "x.rda"), "x"), list(format = "serialized", source = "data/x.rda"))
+  # the lazy-load map wins over loose files
+  expect_equal(sel(c("x.R", "Rdata.rdb"), "x", lazy = "x"),
+               list(format = "lazy", source = "data/Rdata.rdb"))
+  expect_equal(sel(character(), "x")$source, NA_character_)
+})
+
+# Source recorded in the catalog, by dataset resource.
+catalog_source <- function(res) {
+  cat <- data_catalog()
+  stats::setNames(cat$source[match(res, cat$resource)], res)
+}
+
+test_that("catalog source is the file the reader selects, with nothing opened or run", {
+  local_clean_session()
+  lib <- format_library()
+  n <- local_open_counter()
+  calls <- local_lookup_counter()
+  data_attach(c("pdfmtlazy", "pdfmt"), lib.loc = lib)
+  src <- catalog_source(c("lz", "lz2", "ser", "scr1", "tbl", "mix", "dual", "dualb", "dualb2"))
+  expect_equal(unname(src), c("data/Rdata.rdb", "data/Rdata.rdb", "data/ser.rda", "data/scr1.R",
+                              "data/tbl.txt", "data/mix.rda", "data/dual.R", "data/dualb.rda",
+                              "data/dualb2.R"))
+  expect_length(n$log, 0L)
+  expect_equal(calls$n, 0L)
+  invisible(capture.output(print(data_catalog())))
+  expect_length(n$log, 0L)
+  expect_true(all(data_catalog()$state[data_catalog()$resource %in% c("dual", "mix")] == "unopened"))
+
+  # recorded provenance is what the opening message describes
+  data_config(messages = TRUE)
+  expect_message(data_get("dual_obj"), "data/dual.R", fixed = TRUE)
+  expect_message(data_get("dualb_obj"), "data/dualb.rda", fixed = TRUE)
+  expect_equal(unname(catalog_source("dual")), "data/dual.R")
+})
+
+test_that("inventory source does not depend on directory-listing order", {
+  lib <- format_library()
+  data_dir <- file.path(lib, "pdfmt", "data")
+  d <- projectData:::inventory_datasets(file.path(lib, "pdfmt"))
+  src <- stats::setNames(vapply(d, function(x) x$source, ""), vapply(d, function(x) x$resource, ""))
+  for (nm in names(src)) {
+    expect_identical(src[[nm]], projectData:::select_data_source(data_dir, nm)$source)
+  }
+  expect_equal(src[["dual"]], "data/dual.R")
+  # the lazy-load resources keep the shared database source
+  dl <- projectData:::inventory_datasets(file.path(lib, "pdfmtlazy"))
+  expect_equal(vapply(dl, function(x) x$source, ""), rep("data/Rdata.rdb", 2))
+})
+
+test_that("removing an unused alternative after registration does not prevent retrieval", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach("pdfmt", lib.loc = lib)
+  data_dir <- file.path(lib, "pdfmt", "data")
+  expect_true(file.remove(file.path(data_dir, "dual.rda")))
+  expect_true(file.remove(file.path(data_dir, "mix.csv")))
+  expect_identical(data_get("dual_obj"), "script")
+  suppressWarnings(data_inspect("pdfmt", "mix"))
+  expect_identical(data_get("mix_obj"), "serialized")
+  expect_equal(unname(catalog_source(c("dual", "mix"))), c("data/dual.R", "data/mix.rda"))
+})
+
+test_that("removing the selected source fails clearly and never falls back", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach("pdfmt", lib.loc = lib)
+  data_dir <- file.path(lib, "pdfmt", "data")
+  expect_true(file.remove(file.path(data_dir, "dual.R")))
+  expect_true(file.remove(file.path(data_dir, "ser.rda")))
+
+  # the serialized alternative of `dual` remains, but is not what was registered
+  err <- expect_error(data_get("dual_obj"), class = "projectData_opening_failed")
+  expect_match(conditionMessage(err), "data/dual.R", fixed = TRUE)
+  expect_match(conditionMessage(err), "no longer exists", fixed = TRUE)
+  expect_error(data_get("ser_obj"), "data/ser.rda", class = "projectData_opening_failed")
+  cat <- data_catalog()
+  expect_equal(cat$state[match(c("dual", "ser"), cat$resource)], c("failed", "failed"))
+  # retry does not substitute the other file either
+  data_retry("pdfmt", "dual")
+  expect_error(data_get("dual_obj"), "no longer exists", class = "projectData_opening_failed")
+  # unrelated datasets are unaffected
+  expect_identical(data_get("dualb_obj"), "serialized")
+})
+
+test_that("a file that now takes precedence is refused instead of misreporting provenance", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach("pdfmt", lib.loc = lib)
+  writeLines("ser_obj <- 'late script'", file.path(lib, "pdfmt", "data", "ser.R"))
+  err <- expect_error(data_get("ser_obj"), class = "projectData_opening_failed")
+  expect_match(conditionMessage(err), "data/ser.R", fixed = TRUE)
+  expect_match(conditionMessage(err), "data/ser.rda", fixed = TRUE)
+  expect_match(conditionMessage(err), "replace = TRUE", fixed = TRUE)
+  expect_equal(unname(catalog_source("ser")), "data/ser.rda")
+
+  # re-registering records and reads the new selection
+  data_attach("pdfmt", lib.loc = lib, replace = TRUE)
+  expect_equal(unname(catalog_source("ser")), "data/ser.R")
+  expect_identical(data_get("ser_obj"), "late script")
+})
+
+test_that("lazy-load resources keep their shared database source and open normally", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach("pdfmtlazy", lib.loc = lib)
+  calls <- local_lookup_counter()
+  expect_equal(unname(catalog_source(c("lz", "lz2"))), rep("data/Rdata.rdb", 2))
+  data_config(messages = TRUE)
+  msgs <- testthat::capture_messages(expect_identical(data_get("lz_obj"), "lazy"))
+  expect_match(paste(msgs, collapse = ""), "opening resource 'lz'", fixed = TRUE)
+  # the shared database is not described as one dataset's file
+  expect_no_match(paste(msgs, collapse = ""), "on disk")
+  expect_identical(suppressMessages(data_get("lz2_obj")), "lazy2")
   expect_equal(calls$n, 0L)
 })

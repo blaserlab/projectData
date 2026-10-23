@@ -1,8 +1,8 @@
 # R CMD INSTALL rebuilds the dataset index from the real files, so wrong
 # mappings are supplied through a manifest, which is supported input: it
 # declares object names for built-in dataset resources that the files contradict.
-mismatch_library <- function() {
-  lib <- fixture_library()
+mismatch_library <- function(env = parent.frame()) {
+  lib <- fixture_library(env)
   fixture_package(lib, "pdmis", "0.1.0", lazy = FALSE,
     datasets = list(
       example_set = list(sample_metadata = "meta"),
@@ -99,7 +99,7 @@ test_that("inspection and later access share one successful open, including alia
 test_that("genuine opening failure is not a mapping result and keeps retry semantics", {
   lib <- mismatch_library()
   src <- file.path(lib, "pdmis", "data", "example_set.rda")
-  backup <- tempfile(fileext = ".rda")
+  backup <- withr::local_tempfile(fileext = ".rda")
   file.copy(src, backup)
   local_clean_session()
   n <- local_open_counter()

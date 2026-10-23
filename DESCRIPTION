@@ -1,8 +1,9 @@
 Package: projectData
 Title: Deferred Access to Installed Data Collections
-Version: 0.0.0.9004
+Version: 0.0.0.9005
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
+    person("Brad", "Blaser", , "bradley.blaser@osumc.edu", role = c("aut", "cre", "cph"),
+           comment = c(ORCID = "0000-0002-3168-5423"))
 Description: Registers installed, documented data packages as named
     collections without reading their data, exposes objects through deferred
     bindings, resolves name conflicts through explicit primary and preference
@@ -11,7 +12,7 @@ Description: Registers installed, documented data packages as named
 License: MIT + file LICENSE
 Depends: R (>= 4.1.0)
 Imports: utils, stats
-Suggests: knitr, rmarkdown, testthat (>= 3.0.0), withr
+Suggests: knitr, rmarkdown, testthat (>= 3.2.0), tools, withr (>= 2.5.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.1

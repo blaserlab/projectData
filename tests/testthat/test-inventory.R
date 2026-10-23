@@ -177,7 +177,7 @@ test_that("a resource producing none of its recorded objects is failed and retry
   fixture_package(lib, "pdgap", "0.1.0", lazy = FALSE, datasets = list(
     present = list(present_obj = 1), ghost = list(ghost_obj = 2)))
   ghost_file <- file.path(lib, "pdgap", "data", "ghost.rda")
-  backup <- tempfile(fileext = ".rda")
+  backup <- withr::local_tempfile(fileext = ".rda")
   file.copy(ghost_file, backup)
   unlink(ghost_file)
   local_clean_session()

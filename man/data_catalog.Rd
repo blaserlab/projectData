@@ -87,9 +87,14 @@ was found in \verb{data/} (for example, a file removed after installation), or
 when a manifest resource declares no \code{Source}. Such a resource is still
 listed, with its recorded \code{object} names and \code{state} \code{unopened}, because the
 catalog never opens anything to check. The problem surfaces only on opening:
-a missing file raises an error naming the resource. Lazy-loaded datasets
-all share \code{source} \code{data/Rdata.rdb}, which is a database and not one file
-per dataset.
+a missing file raises an error naming the resource. When \verb{data/} holds
+several files for one dataset name (for example \code{x.R} and \code{x.rda}), \code{source}
+is the file that \code{\link[utils:data]{utils::data()}} selects and that the built-in reader opens,
+by one shared rule, so the provenance describes what is read. If the
+selected file is later removed, opening fails with an error rather than
+falling back to another file; removing an unselected alternative changes
+nothing. Lazy-loaded datasets all share \code{source} \code{data/Rdata.rdb}, which is a
+database and not one file per dataset.
 
 \code{data_info()} returns the catalog rows for a name. \code{data_help()} explicitly
 opens the help page of the \emph{original} topic in the source package

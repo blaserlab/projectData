@@ -143,9 +143,14 @@ source_size_text <- function(co, rec) {
 }
 
 work_dir_for <- function(co, rec) {
-  .state$work_counter <- .state$work_counter + 1L
-  dir <- file.path(tempdir(), "projectData-work", co$id,
-                   sprintf("%s-%03d", gsub("[^A-Za-z0-9._-]", "_", rec$resource), .state$work_counter))
+  stem <- file.path(tempdir(), "projectData-work", co$id, gsub("[^A-Za-z0-9._-]", "_", rec$resource))
+  # The counter restarts when the package is reloaded in a session, so skip
+  # directories an earlier load already made instead of reusing them.
+  repeat {
+    .state$work_counter <- .state$work_counter + 1L
+    dir <- sprintf("%s-%03d", stem, .state$work_counter)
+    if (!dir.exists(dir)) break
+  }
   dir.create(dir, recursive = TRUE)
   dir
 }

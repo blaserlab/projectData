@@ -1,13 +1,28 @@
 source(system.file("examples", "fixtures.R", package = "projectData"), local = TRUE)
 source(system.file("examples", "tinydisk.R", package = "projectData"), local = TRUE)
 
+# Test-owned libraries are removed with the test that asked for them. Libraries
+# shared across the whole run are removed at its end (see `shared_library()`).
+plain_fixture_library <- fixture_library
+fixture_library <- function(env = parent.frame()) {
+  lib <- plain_fixture_library()
+  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  lib
+}
+
+shared_library <- function() {
+  lib <- plain_fixture_library()
+  withr::defer(unlink(lib, recursive = TRUE), envir = testthat::teardown_env())
+  lib
+}
+
 fixture_cache <- new.env()
 
 # Built once per test run; all offline, in temporary libraries.
 shared_fixtures <- function() {
   if (!is.null(fixture_cache$lib)) return(fixture_cache)
-  lib <- fixture_library()
-  lib2 <- fixture_library()
+  lib <- shared_library()
+  lib2 <- shared_library()
   refobj <- function(path) saveRDS(list(value = "rds-object"), path)
   fixture_package(lib, "pdmain", "0.1.0", lazy = TRUE, datasets = list(
     cds_main = list(cds_main = "main-v1"),

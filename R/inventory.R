@@ -37,10 +37,6 @@ installed_identity <- function(root) {
 
 # Standard datasets ----------------------------------------------------------
 
-data_file_pattern <- paste0(
-  "\\.(R|r|RData|rdata|rda|tab|txt|TXT|csv|CSV)(\\.(gz|bz2|xz))?$"
-)
-
 # Index items look like "obj" or "obj (dataset)"; keep the raw item.
 parse_index_items <- function(items) {
   m <- regexec("^(.+?) \\((.+)\\)$", items)
@@ -66,25 +62,30 @@ inventory_datasets <- function(root) {
 
   lazy_file <- file.path(data_dir, "Rdata.rds")
   datasets <- list()
+  files <- list.files(data_dir)
   if (file.exists(lazy_file)) {
     # Lazy-load maps dataset -> object names; only this small map is read.
     map <- readRDS(lazy_file)
     for (ds in names(map)) {
-      datasets[[ds]] <- list(source = "data/Rdata.rdb", objects = as.character(map[[ds]]))
+      datasets[[ds]] <- list(source = select_data_from_files(files, ds, names(map))$source,
+                             objects = as.character(map[[ds]]))
     }
   } else if (dir.exists(data_dir)) {
     # `datalist` is written by R CMD build/INSTALL as an index of the data
     # directory; it is not a dataset.
-    files <- setdiff(list.files(data_dir), "datalist")
-    ok <- grepl(data_file_pattern, files)
+    files <- setdiff(files, "datalist")
+    ext <- data_file_ext(files)
+    ok <- ext %in% data_extensions
     if (any(!ok)) {
       pd_warn("Unsupported files in data/ were not inventoried: ",
               quote_names(files[!ok]), ". Initial support covers the formats ",
               "understood by utils::data().", class = "projectData_unsupported_format")
     }
-    for (f in files[ok]) {
-      ds <- sub(data_file_pattern, "", f)
-      datasets[[ds]] <- list(source = paste0("data/", f), objects = NULL)
+    # Several files can share a dataset name (x.R and x.rda); the source is
+    # the one data() selects, by the same rule the built-in reader checks.
+    stems <- unique(substr(files[ok], 1L, nchar(files[ok]) - nchar(ext[ok]) - 1L))
+    for (ds in stems) {
+      datasets[[ds]] <- list(source = select_data_from_files(files, ds)$source, objects = NULL)
     }
   }
   # Indexed datasets without a located file are kept; opening will report.
