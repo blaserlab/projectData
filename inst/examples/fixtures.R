@@ -13,6 +13,8 @@ fixture_library <- function() {
 # scripts: named list, stem -> character vector of lines written to
 #   data/<stem>.R (script datasets; use lazy = FALSE to keep them runtime-evaluated).
 #   `script_docs` gives the object names documented for each script stem.
+# data_files: named list, file name under data/ -> function(path), for other
+#   formats (text, csv, a second file sharing a stem with a script, ...).
 # code: character vector of R source lines (installed as R/code.R); `exports`
 #   names the functions to export (so the package can be attached for tests).
 # drop_index: stems whose rows are removed from Meta/data.rds after install,
@@ -22,7 +24,7 @@ fixture_package <- function(lib, name, version = "0.1.0", lazy = TRUE,
                             files = list(), manifest = NULL,
                             drop_index = character(),
                             scripts = list(), script_docs = NULL,
-                            code = NULL, exports = character()) {
+                            code = NULL, exports = character(), data_files = list()) {
   src <- file.path(tempfile("pd-src-"), name)
   dir.create(file.path(src, "man"), recursive = TRUE)
   writeLines(c(paste("Package:", name), "Title: Fixture", paste("Version:", version),
@@ -34,7 +36,7 @@ fixture_package <- function(lib, name, version = "0.1.0", lazy = TRUE,
     dir.create(file.path(src, "R"))
     writeLines(code, file.path(src, "R", "code.R"))
   }
-  if (length(datasets) || length(scripts)) dir.create(file.path(src, "data"))
+  if (length(datasets) || length(scripts) || length(data_files)) dir.create(file.path(src, "data"))
   for (stem in names(scripts)) {
     writeLines(scripts[[stem]], file.path(src, "data", paste0(stem, ".R")))
     docs <- if (is.null(script_docs)) stem else script_docs[[stem]]
@@ -57,6 +59,7 @@ fixture_package <- function(lib, name, version = "0.1.0", lazy = TRUE,
                  file.path(src, "man", paste0(stem, ".Rd")))
     }
   }
+  for (f in names(data_files)) data_files[[f]](file.path(src, "data", f))
   for (rel in names(files)) {
     path <- file.path(src, "inst", rel)
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)

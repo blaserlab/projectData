@@ -729,3 +729,134 @@ test_that("aliases, explicit access and catalog calls share one opening and snap
   expect_identical(data_get("shared"), a)
   expect_equal(cl$counts$open, 1L)
 })
+
+# Issue 3.3: the lookup chain is built only for script datasets ---------------
+
+local_lookup_counter <- function(env = parent.frame()) {
+  calls <- new.env()
+  calls$n <- 0L
+  bump <- function() calls$n <- calls$n + 1L
+  ns <- asNamespace("projectData")
+  suppressMessages(trace("script_lookup_env", bquote(.(bump)()), print = FALSE, where = ns))
+  withr::defer(suppressMessages(untrace("script_lookup_env", where = ns)), envir = env)
+  calls
+}
+
+format_library <- function(env = parent.frame()) {
+  lib <- fixture_library()
+  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  fixture_package(lib, "pdfmtlazy", lazy = TRUE,
+                  datasets = list(lz = list(lz_obj = "lazy")))
+  fixture_package(lib, "pdfmt", lazy = FALSE,
+    datasets = list(ser = list(ser_obj = "serialized"),
+                    dual = list(dual_obj = "serialized"),
+                    dualb = list(dualb_obj = "serialized")),
+    scripts = list(
+      scr1 = "scr1_obj <- head(letters, 2)",
+      scr2 = "scr2_obj <- head(LETTERS, 2)",
+      dual = "dual_obj <- 'script'",
+      # shares a name prefix with `dualb`, but is a different dataset
+      dualb2 = "dualb2_obj <- 'script'"),
+    script_docs = list(scr1 = "scr1_obj", scr2 = "scr2_obj", dual = "dual_obj",
+                       dualb2 = "dualb2_obj"),
+    data_files = list(
+      "tbl.txt" = function(p) writeLines(c("a b", "1 2", "3 4"), p),
+      # both a table and a serialized file: serialized comes first in data()
+      "mix.csv" = function(p) writeLines(c("a;b", "5;6"), p),
+      "mix.rda" = function(p) { mix_obj <- "serialized"; save(mix_obj, file = p) }),
+    documented = list(ser = "ser_obj", dual = "dual_obj", dualb = "dualb_obj"))
+  lib
+}
+
+test_that("data_extensions matches the precedence of utils::data()", {
+  expect_identical(projectData:::data_extensions, tools:::.make_file_exts("data"))
+})
+
+test_that("selected format follows data() without opening or running anything", {
+  lib <- format_library()
+  fmt <- function(pkg, name) {
+    projectData:::selected_data_format(file.path(lib, pkg, "data"), name)
+  }
+  expect_identical(fmt("pdfmtlazy", "lz"), "lazy")
+  expect_identical(fmt("pdfmt", "ser"), "serialized")
+  expect_identical(fmt("pdfmt", "scr1"), "script")
+  expect_identical(fmt("pdfmt", "tbl"), "text")
+  expect_identical(fmt("pdfmt", "mix"), "serialized")
+  # script before serialized, as in data(); a longer name does not interfere
+  expect_identical(fmt("pdfmt", "dual"), "script")
+  expect_identical(fmt("pdfmt", "dualb"), "serialized")
+  expect_true(is.na(fmt("pdfmt", "absent")))
+  # the same choice data() makes
+  e <- new.env()
+  utils::data(list = "dual", package = "pdfmt", lib.loc = lib, envir = e)
+  expect_identical(e$dual_obj, "script")
+})
+
+test_that("only script resources build the lookup chain", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach(c("pdfmtlazy", "pdfmt"), lib.loc = lib)
+  calls <- local_lookup_counter()
+
+  expect_identical(data_get("ser_obj"), "serialized")
+  expect_equal(calls$n, 0L)
+  expect_identical(data_get("lz_obj"), "lazy")
+  expect_equal(calls$n, 0L)
+  expect_equal(data_get("tbl")$b, c(2L, 4L))
+  expect_equal(calls$n, 0L)
+
+  expect_identical(data_get("scr1_obj"), c("a", "b"))
+  expect_equal(calls$n, 1L)
+  # cached: no second construction, same object
+  expect_identical(data_get("scr1_obj"), c("a", "b"))
+  expect_equal(calls$n, 1L)
+
+  # an independent evaluation environment per resource
+  expect_identical(data_get("scr2_obj"), c("A", "B"))
+  expect_equal(calls$n, 2L)
+  e1 <- projectData:::script_lookup_env()
+  e2 <- projectData:::script_lookup_env()
+  expect_false(identical(e1, e2))
+})
+
+test_that("script and serialized files sharing a name follow data() precedence", {
+  local_clean_session()
+  lib <- format_library()
+  data_attach("pdfmt", lib.loc = lib)
+  calls <- local_lookup_counter()
+
+  expect_identical(data_get("dual_obj"), "script")
+  expect_equal(calls$n, 1L)
+  # a script whose name merely contains another dataset's name is not selected
+  expect_identical(data_get("dualb_obj"), "serialized")
+  expect_equal(calls$n, 1L)
+  # an unmapped resource is inspected: serialized wins over the table, no chain
+  suppressWarnings(data_inspect("pdfmt", "mix"))
+  expect_identical(data_get("mix_obj"), "serialized")
+  expect_equal(calls$n, 1L)
+})
+
+test_that("failure and retry of a script still work with the format check", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdfmtfail", lazy = FALSE,
+    scripts = list(bad = c("bad_obj <- 1", "stop('nope')")))
+  data_attach("pdfmtfail", lib.loc = lib)
+  calls <- local_lookup_counter()
+  expect_error(data_get("bad_obj"), class = "projectData_opening_failed")
+  expect_equal(calls$n, 1L)
+  data_retry("pdfmtfail", "bad")
+  expect_error(data_get("bad_obj"), class = "projectData_opening_failed")
+  expect_equal(calls$n, 2L)
+})
+
+test_that("inventory, attachment and catalog build no lookup chain for any format", {
+  local_clean_session()
+  lib <- format_library()
+  calls <- local_lookup_counter()
+  data_query(c("pdfmtlazy", "pdfmt"), lib.loc = lib)
+  data_attach(c("pdfmtlazy", "pdfmt"), lib.loc = lib)
+  invisible(data_catalog())
+  invisible(capture.output(print(data_catalog())))
+  expect_equal(calls$n, 0L)
+})

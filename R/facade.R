@@ -162,8 +162,13 @@ data_masking <- function() {
 #' @section Script datasets (`data/*.R`):
 #' Packages that ship non-lazy data scripts are supported. The script is run
 #' only when its resource is first opened, by [utils::data()], in a fresh
-#' environment that holds only the script's outputs. Its enclosing lookup chain
-#' is the fixed set of standard startup packages, in ordinary startup order:
+#' environment that holds only the script's outputs. Whether a dataset is a
+#' script is decided as [utils::data()] decides it, from the lazy-load map and
+#' file names in `data/` (so when `x.R` and `x.rda` both exist, the script is
+#' used), without opening or running anything. Only for a script is the
+#' enclosing lookup chain built, once per opening, and never shared between
+#' scripts; serialized, lazy-load and text datasets get a plain output
+#' environment. The chain is the fixed set of standard startup packages, in ordinary startup order:
 #' stats, graphics, grDevices, utils, datasets, methods, then base. Unqualified
 #' calls such as `head()` or `model.matrix()` therefore work, and method
 #' dispatch is unchanged. The set does not follow `options("defaultPackages")`,

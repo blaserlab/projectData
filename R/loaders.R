@@ -329,6 +329,43 @@ script_lookup_env <- function(getter = getExportedValue) {
   parent
 }
 
+# Extensions understood by utils::data(), in its own precedence order. Kept
+# literal (tools:::.make_file_exts("data") is not public API); a test compares
+# the two.
+data_extensions <- c("R", "r", "RData", "rdata", "rda", "tab", "txt", "TXT",
+                     "tab.gz", "txt.gz", "tab.bz2", "txt.bz2", "tab.xz", "txt.xz",
+                     "csv", "CSV", "csv.gz", "csv.bz2", "csv.xz")
+
+data_file_ext <- function(x) {
+  compressed <- grepl("\\.[^.]+\\.(gz|bz2|xz)$", x)
+  ext <- sub(".*\\.", "", x)
+  ext[compressed] <- sub(".*\\.([^.]+\\.)(gz|bz2|xz)$", "\\1\\2", x[compressed])
+  ext
+}
+
+# The format utils::data() will use for `name` in a package's data/ directory,
+# decided from the small Rdata.rds map and file names only: nothing is loaded
+# or run. Mirrors data(): the lazy-load map wins; otherwise files whose names
+# contain `name` are ordered by extension precedence and the first whose full
+# name is `name.<supported extension>` is used. Returns "lazy", "script",
+# "serialized", "text", or NA when nothing would be found (data() then warns
+# and the opening reports it).
+selected_data_format <- function(data_dir, name) {
+  map_file <- file.path(data_dir, "Rdata.rds")
+  if (file.exists(map_file) && name %in% names(readRDS(map_file))) return("lazy")
+  files <- list.files(data_dir)
+  files <- files[grepl(name, files, fixed = TRUE)]
+  ext <- data_file_ext(files)
+  files <- files[order(match(ext, data_extensions, nomatch = 100L))]
+  ext <- data_file_ext(files)
+  hit <- which(files == paste0(name, ".", ext) & ext %in% data_extensions)
+  if (!length(hit)) return(NA_character_)
+  switch(ext[[hit[[1]]]],
+         R = , r = "script",
+         RData = , rdata = , rda = "serialized",
+         "text")
+}
+
 # utils::data() runs library("utils") before sourcing an R script, which
 # attaches utils when it is absent. If utils was not attached when this call
 # started, detach it again on exit (success or error). A preexisting attachment
@@ -356,9 +393,17 @@ register_builtin_loaders <- function() {
     data_loader(
       "projectData::dataset",
       open = function(descriptor, paths, context) {
-        # Scripts see the standard startup packages, not the global workspace
-        # or other attached packages; outputs go to a separate, fresh frame.
-        env <- new.env(parent = script_lookup_env())
+        # Only scripts evaluate user code, so only they get the standard
+        # startup lookup chain (not the global workspace or other attached
+        # packages). Other formats just need a fresh output frame. The format
+        # is the one data() will select; nothing is opened to decide it.
+        format <- selected_data_format(file.path(context$root, "data"),
+                                       descriptor$resource)
+        env <- if (identical(format, "script")) {
+          new.env(parent = script_lookup_env())
+        } else {
+          new.env(parent = baseenv())
+        }
         without_implicit_utils(
           utils::data(list = descriptor$resource, package = context$package,
                       lib.loc = context$library, envir = env, overwrite = TRUE)
