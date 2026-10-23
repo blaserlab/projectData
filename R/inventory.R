@@ -128,8 +128,33 @@ inventory_datasets <- function(root) {
 #' the loader is not yet registered.
 #'
 #' A manifest record replaces every automatically discovered candidate with
-#' the same `Resource`. Declaring a resource twice in one manifest, whether or
-#' not the records agree, is an error.
+#' the same `Resource`.
+#'
+#' @section Rules for the whole manifest:
+#' Reading, validation and [data_manifest_write()] share these rules:
+#'
+#' * a resource is declared once; repeating a `Resource`, whether or not the
+#'   records agree, is an error (`projectData_manifest_error`);
+#' * distinct resources cannot declare the same object name
+#'   (`projectData_duplicate_object`, naming the competing resources); the same
+#'   name in separate collections is unaffected;
+#' * `Options` is a list of `key=value` entries separated by `;`. Whitespace
+#'   around keys and values is ignored and the first `=` splits key from value,
+#'   so values may contain `=`. Keys must be non-empty and unique (after
+#'   trimming) within a resource, values non-empty, and every entry needs `=`.
+#'   Values cannot contain `;`;
+#' * each descriptor must pass the structural and path checks (namespaced
+#'   loader, relative `Source` existing inside the root, unique object names).
+#'
+#' @section Scope of validation:
+#' Validation is metadata-only: no resource is opened, no dataset script run and
+#' no adapter package loaded or installed. If the named loader is registered
+#' and has a `validate` function it is called; if it is not registered, only
+#' the structural rules above are checked and loader-specific validation is
+#' not performed. A manifest that passes cannot fail later because of a
+#' duplicate declaration inside it, but validation does not check object
+#' names against other discovered resources of the collection (that happens
+#' when the collection is assembled), nor that a loader will open the data.
 #'
 #' @param file Path to a manifest file.
 #' @param root Root against which `Source` paths are checked: an installed
@@ -167,25 +192,17 @@ read_manifest <- function(file, root, context, check = TRUE, allowed = NULL) {
   rows <- seq_len(nrow(m))[-1]
   ids <- vapply(rows, function(i) get(i, "Resource"), "")
   if (anyNA(ids)) fail("every resource record needs a Resource field")
-  if (anyDuplicated(ids)) {
-    dup <- unique(ids[duplicated(ids)])
-    loaders <- vapply(dup, function(r) {
-      paste(vapply(rows[ids == r], function(i) get(i, "Loader") %||% "NA", ""), collapse = " vs ")
-    }, "")
-    fail("duplicate Resource ", quote_names(dup), " (loaders: ", paste(loaders, collapse = "; "),
-         "); declare each resource once")
-  }
+  check_unique_resources(ids, vapply(rows, function(i) get(i, "Loader"), ""), fail)
 
-  lapply(rows, function(i) {
+  out <- lapply(rows, function(i) {
     split_csv <- function(x) if (is.na(x)) NULL else trimws(strsplit(x, ",", fixed = TRUE)[[1]])
     loader <- get(i, "Loader")
     if (is.na(loader)) fail("resource '", get(i, "Resource"), "' needs a Loader")
     opts <- list()
     if (!is.na(get(i, "Options"))) {
-      kv <- strsplit(strsplit(get(i, "Options"), ";", fixed = TRUE)[[1]], "=", fixed = TRUE)
-      if (any(lengths(kv) < 2L)) fail("Options must be key=value pairs separated by ';'")
-      opts <- stats::setNames(lapply(kv, function(p) trimws(paste(p[-1], collapse = "="))),
-                              trimws(vapply(kv, `[`, "", 1)))
+      opts <- parse_manifest_options(get(i, "Options"), function(...) {
+        fail("resource '", get(i, "Resource"), "': ", ...)
+      })
     }
     adapter <- NULL
     if (!is.na(get(i, "AdapterPackage"))) {
@@ -202,6 +219,57 @@ read_manifest <- function(file, root, context, check = TRUE, allowed = NULL) {
     if (check) check_descriptor(d, root, context, fail = fail, allowed = allowed)
     d
   })
+  if (check) check_manifest_descriptors(out, paste0("manifest ", basename(dirname(file)), "/", basename(file)), fail)
+  out
+}
+
+# Rules that hold for a manifest as a whole, shared by reading, standalone
+# validation and writing. They use declarations only: nothing is opened.
+check_unique_resources <- function(ids, loaders, fail) {
+  if (!anyDuplicated(ids)) return(invisible(TRUE))
+  dup <- unique(ids[duplicated(ids)])
+  detail <- vapply(dup, function(r) {
+    paste0("'", r, "' (loaders: ", paste(loaders[ids == r], collapse = " vs "), ")")
+  }, "")
+  fail("duplicate Resource ", paste(detail, collapse = ", "),
+       " declared more than once; declare each resource once")
+}
+
+check_manifest_descriptors <- function(descriptors, label, fail) {
+  ids <- vapply(descriptors, function(d) d$resource, "")
+  check_unique_resources(ids, vapply(descriptors, function(d) d$loader %||% "NA", ""), fail)
+  n <- lengths(lapply(descriptors, function(d) d$objects))
+  check_unique_objects(
+    NA_character_, rep(ids, n),
+    unlist(lapply(descriptors, function(d) d$objects), use.names = FALSE),
+    scope = label,
+    hint = paste0("A manifest cannot declare the same object name for distinct resources; ",
+                  "give each resource its own names."))
+  invisible(TRUE)
+}
+
+# `Options` field: `key=value` entries separated by ';'. The first '=' splits
+# key from value, so values may contain '='. Keys and values are trimmed; both
+# must be non-empty and keys unique (checked after trimming).
+parse_manifest_options <- function(text, fail) {
+  entries <- strsplit(text, ";", fixed = TRUE)[[1]]
+  if (grepl(";[[:space:]]*$", text)) entries <- c(entries, "")
+  if (!length(entries)) fail("Options has no key=value entries")
+  entries <- trimws(entries)
+  pos <- regexpr("=", entries, fixed = TRUE)
+  empty <- !nzchar(entries)
+  if (any(empty)) fail("Options has an empty entry (stray ';'); entries must be key=value")
+  if (any(pos < 1L)) {
+    fail("malformed Options entry ", deparse(entries[pos < 1L][1]), "; expected key=value")
+  }
+  keys <- trimws(substr(entries, 1L, pos - 1L))
+  vals <- trimws(substring(entries, pos + 1L))
+  if (any(!nzchar(keys))) fail("Options entry ", deparse(entries[!nzchar(keys)][1]), " has an empty key")
+  if (any(!nzchar(vals))) fail("Options key '", keys[!nzchar(vals)][1], "' has an empty value")
+  if (anyDuplicated(keys)) {
+    fail("duplicate Options key(s) ", quote_names(unique(keys[duplicated(keys)])))
+  }
+  stats::setNames(as.list(vals), keys)
 }
 
 # Descriptors ----------------------------------------------------------------
@@ -255,6 +323,13 @@ check_descriptor <- function(d, root, context, fail = function(...) pd_abort(...
   }
   if (!is.list(d$options) || (length(d$options) && is.null(names(d$options)))) {
     fail(where, "options must be a named list")
+  }
+  if (length(d$options)) {
+    keys <- names(d$options)
+    if (anyNA(keys) || any(!nzchar(trimws(keys)))) fail(where, "option names cannot be empty")
+    if (anyDuplicated(trimws(keys))) {
+      fail(where, "duplicate option key(s) ", quote_names(unique(trimws(keys)[duplicated(trimws(keys))])))
+    }
   }
   if (!is.null(d$adapter) && !(is_scalar_string(d$adapter$package) && is_scalar_string(d$adapter$export))) {
     fail(where, "adapter needs a package and export")

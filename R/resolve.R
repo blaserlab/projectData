@@ -73,18 +73,21 @@ ambiguity_message <- function(name, res) {
 # The one rule for object names within a collection: each recorded name belongs
 # to exactly one resource (unknown mappings, NA, claim nothing). Used for initial
 # assembly, for every proposed state and before retrieval. Metadata only.
-check_unique_objects <- function(collection, resource, object) {
+# `scope` names what the names must be unique within; `hint` says how to fix it.
+check_unique_objects <- function(collection, resource, object,
+                                 scope = paste0("collection '", collection, "'"),
+                                 hint = paste0("Object names must be unique within a collection; nothing was changed. ",
+                                               "Correct the mapping (manifest or data_inspect() of the resources involved).")) {
   keep <- !is.na(object)
   tab <- unique(data.frame(resource = resource[keep], object = object[keep],
                            stringsAsFactors = FALSE))
   dup <- unique(tab$object[duplicated(tab$object)])
   if (length(dup)) {
     nm <- dup[1]
-    pd_abort("Object '", nm, "' is produced by more than one resource in collection '",
-             collection, "': ", quote_names(tab$resource[tab$object == nm]),
+    pd_abort("Object '", nm, "' is produced by more than one resource in ",
+             scope, ": ", quote_names(tab$resource[tab$object == nm]),
              if (length(dup) > 1L) paste0(" (also duplicated: ", quote_names(dup[-1]), ")") else "",
-             ". Object names must be unique within a collection; nothing was changed. ",
-             "Correct the mapping (manifest or data_inspect() of the resources involved).",
+             ". ", hint,
              class = "projectData_duplicate_object")
   }
   invisible(TRUE)

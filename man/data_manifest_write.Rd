@@ -60,9 +60,12 @@ per-object vector is accepted only if all its values are the same.
 cannot contain \code{=} or \verb{;}, values cannot contain \verb{;}.
 \item Object names cannot contain commas. No field may contain a line break or
 leading or trailing whitespace.
-\item Two resources cannot expose the same object name, and a resource can be
-declared only once.
 }
+
+Semantic rules are the ones \code{\link[=data_manifest_validate]{data_manifest_validate()}} applies to a file (a
+resource is declared once, distinct resources do not share an object name,
+option keys are unique and non-empty), through the same code. The
+restrictions above are format limits that only the writer needs.
 
 The written text is read back and must reproduce the descriptors exactly
 before the file is put in place; it is written to a temporary file in the

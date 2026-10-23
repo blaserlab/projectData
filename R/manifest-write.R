@@ -180,8 +180,11 @@ data_manifest_draft <- function(root, loaders = NULL, layout = "auto") {
 #'   cannot contain `=` or `;`, values cannot contain `;`.
 #' * Object names cannot contain commas. No field may contain a line break or
 #'   leading or trailing whitespace.
-#' * Two resources cannot expose the same object name, and a resource can be
-#'   declared only once.
+#'
+#' Semantic rules are the ones [data_manifest_validate()] applies to a file (a
+#' resource is declared once, distinct resources do not share an object name,
+#' option keys are unique and non-empty), through the same code. The
+#' restrictions above are format limits that only the writer needs.
 #'
 #' The written text is read back and must reproduce the descriptors exactly
 #' before the file is put in place; it is written to a temporary file in the
@@ -235,19 +238,9 @@ data_manifest_write <- function(descriptors, file, root = default_manifest_root(
 
   descriptors <- unname(lapply(descriptors, prepare_manifest_descriptor))
   ids <- vapply(descriptors, function(d) d$resource, "")
-  if (anyDuplicated(ids)) {
-    pd_abort("Cannot write manifest: resource(s) ", quote_names(unique(ids[duplicated(ids)])),
-             " declared more than once.", class = "projectData_manifest_error")
-  }
-  seen <- character()
-  for (d in descriptors) {
-    clash <- intersect(d$objects, seen)
-    if (length(clash)) {
-      pd_abort("Cannot write manifest: object(s) ", quote_names(clash), " produced by more ",
-               "than one resource.", class = "projectData_duplicate_object")
-    }
-    seen <- c(seen, d$objects)
-  }
+  check_manifest_descriptors(
+    descriptors, paste0("the manifest to write ('", basename(file), "')"),
+    function(...) pd_abort("Cannot write manifest: ", ..., class = "projectData_manifest_error"))
 
   view <- authoring_view(root, layout)
   on.exit(view$close(), add = TRUE)
@@ -351,7 +344,8 @@ prepare_manifest_descriptor <- function(d) {
   }
   if (length(d$options)) {
     keys <- names(d$options)
-    if (is.null(keys) || anyDuplicated(keys)) bad("options must have unique names.")
+    if (is.null(keys)) bad("options must be a named list.")
+    if (anyDuplicated(keys)) bad("duplicate option key(s) ", quote_names(unique(keys[duplicated(keys)])), ".")
     text_ok("option names", keys)
     if (any(grepl("[=;]", keys))) bad("option names cannot contain '=' or ';'.")
     for (k in keys) {

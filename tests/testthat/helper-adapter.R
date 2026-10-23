@@ -88,3 +88,16 @@ local_adapter_lib <- function(lib, env = parent.frame()) {
     .libPaths(old)
   }, envir = env)
 }
+
+counting_tinydisk <- function(id = "tinydisk::tinymat") {
+  counts <- new.env()
+  counts$discover <- 0L
+  counts$open <- 0L
+  l <- tinydisk_loader()
+  l$id <- id
+  d <- l$discover
+  o <- l$open
+  l$discover <- function(root, context) { counts$discover <- counts$discover + 1L; d(root, context) }
+  l$open <- function(descriptor, paths, context) { counts$open <- counts$open + 1L; o(descriptor, paths, context) }
+  list(loader = l, counts = counts)
+}

@@ -43,9 +43,39 @@ returning a \code{\link[=data_loader]{data_loader()}}) that is loaded by namespa
 the loader is not yet registered.
 
 A manifest record replaces every automatically discovered candidate with
-the same \code{Resource}. Declaring a resource twice in one manifest, whether or
-not the records agree, is an error.
+the same \code{Resource}.
 }
+\section{Rules for the whole manifest}{
+
+Reading, validation and \code{\link[=data_manifest_write]{data_manifest_write()}} share these rules:
+\itemize{
+\item a resource is declared once; repeating a \code{Resource}, whether or not the
+records agree, is an error (\code{projectData_manifest_error});
+\item distinct resources cannot declare the same object name
+(\code{projectData_duplicate_object}, naming the competing resources); the same
+name in separate collections is unaffected;
+\item \code{Options} is a list of \code{key=value} entries separated by \verb{;}. Whitespace
+around keys and values is ignored and the first \code{=} splits key from value,
+so values may contain \code{=}. Keys must be non-empty and unique (after
+trimming) within a resource, values non-empty, and every entry needs \code{=}.
+Values cannot contain \verb{;};
+\item each descriptor must pass the structural and path checks (namespaced
+loader, relative \code{Source} existing inside the root, unique object names).
+}
+}
+
+\section{Scope of validation}{
+
+Validation is metadata-only: no resource is opened, no dataset script run and
+no adapter package loaded or installed. If the named loader is registered
+and has a \code{validate} function it is called; if it is not registered, only
+the structural rules above are checked and loader-specific validation is
+not performed. A manifest that passes cannot fail later because of a
+duplicate declaration inside it, but validation does not check object
+names against other discovered resources of the collection (that happens
+when the collection is assembled), nor that a loader will open the data.
+}
+
 \seealso{
 \code{\link[=data_manifest_draft]{data_manifest_draft()}} and \code{\link[=data_manifest_write]{data_manifest_write()}} to produce a
 manifest.
