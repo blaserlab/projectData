@@ -14,7 +14,23 @@ new_resource <- function(collection, d) {
   rec$observed <- NULL
   rec$error <- NULL
   rec$loader_problem <- NULL
+  rec$opened_with <- NULL
   rec
+}
+
+# Descriptive metadata of the loader that opened a resource, kept for reporting
+# only. It holds no functions, so it cannot keep a replaced loader or its
+# namespace alive, and it is unaffected by later registry changes.
+loader_snapshot <- function(loader) {
+  list(id = loader$id, contract = loader$contract, storage = loader$storage)
+}
+
+# Storage classification for the catalog. A ready resource reports what it was
+# opened with; any other resource reports the loader that would open it now.
+resource_storage <- function(rec) {
+  if (rec$state == "ready" && !is.null(rec$opened_with)) return(rec$opened_with$storage)
+  l <- find_loader(rec$loader)
+  if (is.null(l)) "unknown" else l$storage
 }
 
 # Whether the loader can be used right now, from metadata only (no namespace is
@@ -222,6 +238,7 @@ open_resource <- function(co, rec) {
     }
     rec$value <- value
     rec$observed <- names(value)
+    rec$opened_with <- loader_snapshot(loader)
     rec$error <- NULL
     rec$state <- "ready"
     ok <- TRUE
@@ -229,6 +246,7 @@ open_resource <- function(co, rec) {
     rec$state <- "failed"
     rec$error <- conditionMessage(e)
     rec$value <- NULL
+    rec$opened_with <- NULL
     stop(pd_condition(
       paste0("Opening resource '", rec$resource, "' of collection '", co$id,
              "' failed: ", conditionMessage(e), " The resource is marked 'failed'; ",

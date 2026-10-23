@@ -32,7 +32,10 @@ is rejected, the registry is left unchanged.
 }
 \details{
 Replacing a loader (\code{replace = TRUE}) affects resources opened afterwards.
-Resources that are already \code{ready} keep their cached objects. Removing a
+Resources that are already \code{ready} keep their cached objects and are not
+reopened or revalidated; the catalog \code{storage} of a ready resource keeps
+describing the loader that opened it, while \code{loader_status} reports whether
+a loader is currently available for future opening. Removing a
 loader leaves ready objects untouched, and marks unopened resources that
 need it as \code{unavailable-loader} (see \code{loader_status} in \code{\link[=data_catalog]{data_catalog()}}). Built-in loaders cannot be removed or
 replaced.

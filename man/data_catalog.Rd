@@ -60,7 +60,16 @@ matching resource is never wholly verified by one matching name.
 \code{disk-backed} this does not mean the data are in memory. \code{recorded_class}
 is whatever the creator declared; it is \strong{recorded, not observed}.
 
-\code{loader_status} reports whether the loader is usable, from metadata only:
+\code{storage} describes the object as it exists. For a \code{ready} resource it is the
+classification of the loader that opened it, recorded at that opening (with
+the loader id and contract version, internally), so it does not change when
+that loader is later replaced or removed, and the cached object is not
+reopened. For any other resource it is the declaration of the loader
+currently registered for it, or \code{unknown} when none is. A failed attempt
+records nothing; a later successful retry records the loader used for it.
+
+\code{loader_status} reports current availability for future opening, not how a
+cached object was opened. It reports whether the loader is usable, from metadata only:
 \code{registered} (a loader with that id is registered in this session),
 \code{unresolved} (not registered, but a manifest names an adapter package that
 is installed; the adapter has \strong{not} been loaded or checked, so it may still

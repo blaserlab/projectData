@@ -185,7 +185,10 @@ validate_with_loader <- function(loader, d, root, context) {
 #' is rejected, the registry is left unchanged.
 #'
 #' Replacing a loader (`replace = TRUE`) affects resources opened afterwards.
-#' Resources that are already `ready` keep their cached objects. Removing a
+#' Resources that are already `ready` keep their cached objects and are not
+#' reopened or revalidated; the catalog `storage` of a ready resource keeps
+#' describing the loader that opened it, while `loader_status` reports whether
+#' a loader is currently available for future opening. Removing a
 #' loader leaves ready objects untouched, and marks unopened resources that
 #' need it as `unavailable-loader` (see `loader_status` in [data_catalog()]). Built-in loaders cannot be removed or
 #' replaced.

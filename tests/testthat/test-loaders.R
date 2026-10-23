@@ -588,3 +588,144 @@ test_that("discovery and manifest resolution do not open resources", {
   expect_equal(opened, 0L)
   expect_length(n$log, 0)
 })
+
+# Issue 2.6: storage of a ready resource comes from its opening, not the registry.
+local_tinydisk_lib <- function(names, env = parent.frame()) {
+  lib <- fixture_library()
+  fixture_package(lib, "pdsnap", lazy = FALSE, datasets = list(),
+    files = stats::setNames(
+      lapply(names, function(i) function(p) tinymat_write(matrix(as.double(1:6), 2, 3), p)),
+      paste0("extdata/", names, ".tinymat")))
+  lib
+}
+
+memory_variant <- function(counts, fail = FALSE) {
+  l <- tinydisk_loader()
+  o <- l$open
+  l$storage <- "memory"
+  l$open <- function(descriptor, paths, context) {
+    counts$open <- counts$open + 1L
+    if (fail) stop("memory loader failure")
+    o(descriptor, paths, context)
+  }
+  l
+}
+
+test_that("ready storage survives loader removal and replacement; unopened follows the registry", {
+  local_clean_session()
+  lib <- local_tinydisk_lib(c("first", "second"))
+  cl <- counting_tinydisk()
+  n <- local_open_counter()
+  data_loader_add(cl$loader)
+  data_attach("pdsnap", lib.loc = lib)
+  st <- function() {
+    cat <- data_catalog()
+    stats::setNames(cat$storage, cat$object)
+  }
+  expect_equal(st(), c(first = "disk-backed", second = "disk-backed"))
+
+  m1 <- data_get("first")
+  expect_equal(cl$counts$open, 1L)
+  rec <- projectData:::get_collection("pdsnap")$resources$first
+  expect_equal(rec$opened_with,
+               list(id = "tinydisk::tinymat", contract = 1L, storage = "disk-backed"))
+  expect_null(projectData:::get_collection("pdsnap")$resources$second$opened_with)
+
+  data_loader_remove("tinydisk::tinymat")
+  cat <- data_catalog()
+  expect_equal(cat$storage[cat$object == "first"], "disk-backed")
+  expect_equal(cat$loader_status[cat$object == "first"], "unavailable")
+  expect_equal(cat$state[cat$object == "first"], "ready")
+  expect_equal(cat$storage[cat$object == "second"], "unknown")
+  expect_equal(cat$state[cat$object == "second"], "unavailable-loader")
+  expect_identical(data_get("first"), m1)
+  expect_equal(cl$counts$open, 1L)
+
+  mem <- new.env(); mem$open <- 0L
+  data_loader_add(memory_variant(mem))
+  expect_equal(st(), c(first = "disk-backed", second = "memory"))
+  cat <- data_catalog()
+  expect_equal(cat$loader_status[cat$object == "first"], "registered")
+  expect_identical(data_get("first"), m1)
+  expect_equal(c(cl$counts$open, mem$open), c(1L, 0L))
+  expect_equal(n$log, "pdsnap/first")
+
+  m2 <- data_get("second")
+  expect_equal(mem$open, 1L)
+  expect_equal(projectData:::get_collection("pdsnap")$resources$second$opened_with$storage, "memory")
+  data_loader_remove("tinydisk::tinymat")
+  expect_equal(st(), c(first = "disk-backed", second = "memory"))
+  expect_equal(c(cl$counts$open, mem$open), c(1L, 1L))
+})
+
+test_that("a failed opening keeps no snapshot; a retry records the loader used", {
+  local_clean_session()
+  lib <- local_tinydisk_lib("only")
+  mem <- new.env(); mem$open <- 0L
+  data_loader_add(memory_variant(mem, fail = TRUE))
+  data_attach("pdsnap", lib.loc = lib)
+  rec <- projectData:::get_collection("pdsnap")$resources$only
+  expect_error(data_get("only"), class = "projectData_opening_failed")
+  expect_null(rec$opened_with)
+  cat <- data_catalog()
+  expect_equal(c(cat$state, cat$storage), c("failed", "memory"))
+
+  cl <- counting_tinydisk()
+  data_loader_add(cl$loader, replace = TRUE)
+  data_retry("pdsnap", "only")
+  expect_s3_class(data_get("only"), "tinymat")
+  expect_equal(rec$opened_with$storage, "disk-backed")
+  data_loader_add(memory_variant(mem), replace = TRUE)
+  expect_equal(data_catalog()$storage, "disk-backed")
+  expect_equal(c(mem$open, cl$counts$open), c(1L, 1L))
+})
+
+test_that("a mapping mismatch still records opening metadata and stays inspectable", {
+  local_clean_session()
+  lib <- fixture_library()
+  fixture_package(lib, "pdsnapmm", lazy = FALSE, datasets = list(),
+    files = list("extdata/real.tinymat" = function(p) tinymat_write(diag(2), p)),
+    manifest = c("ManifestVersion: 1", "", "Resource: real", "Loader: tinydisk::tinymat",
+                 "Source: extdata/real.tinymat", "Objects: wrong_name"))
+  l <- tinydisk_loader()
+  o <- l$open
+  l$open <- function(descriptor, paths, context) {
+    stats::setNames(o(descriptor, paths, context), "real")
+  }
+  data_loader_add(l)
+  data_attach("pdsnapmm", lib.loc = lib)
+  expect_error(data_get("wrong_name"), class = "projectData_mapping_error")
+  cat <- data_catalog()
+  expect_equal(c(cat$state, cat$mapping, cat$storage), c("ready", "mismatch", "disk-backed"))
+  data_loader_remove("tinydisk::tinymat")
+  expect_equal(data_catalog()$storage, "disk-backed")
+  data_inspect("pdsnapmm", "real")
+  cat <- data_catalog()
+  expect_equal(c(cat$object, cat$mapping, cat$storage), c("real", "verified", "disk-backed"))
+})
+
+test_that("aliases, explicit access and catalog calls share one opening and snapshot", {
+  local_clean_session()
+  lib <- local_tinydisk_lib("shared")
+  cl <- counting_tinydisk()
+  data_loader_add(cl$loader)
+  data_attach("pdsnap", lib.loc = lib, suffix = "_s")
+  before <- cl$counts$open
+  invisible(data_catalog()); invisible(capture.output(print(data_catalog())))
+  invisible(data_query("pdsnap", lib.loc = lib, id = "q"))
+  expect_equal(cl$counts$open, before)
+  expect_equal(cl$counts$open, 0L)
+
+  a <- data_get("shared")
+  b <- data_get("shared", package = "pdsnap", lib.loc = lib)
+  expect_identical(a, b)
+  expect_equal(cl$counts$open, 1L)
+  cat <- data_catalog()
+  expect_gte(nrow(cat), 1L)
+  expect_true(all(cat$storage == "disk-backed" & cat$state == "ready"))
+  data_loader_remove("tinydisk::tinymat")
+  data_loader_add(memory_variant(cl$counts), replace = TRUE)
+  expect_true(all(data_catalog()$storage == "disk-backed"))
+  expect_identical(data_get("shared"), a)
+  expect_equal(cl$counts$open, 1L)
+})

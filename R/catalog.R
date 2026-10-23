@@ -37,7 +37,16 @@
 #' `disk-backed` this does not mean the data are in memory. `recorded_class`
 #' is whatever the creator declared; it is **recorded, not observed**.
 #'
-#' `loader_status` reports whether the loader is usable, from metadata only:
+#' `storage` describes the object as it exists. For a `ready` resource it is the
+#' classification of the loader that opened it, recorded at that opening (with
+#' the loader id and contract version, internally), so it does not change when
+#' that loader is later replaced or removed, and the cached object is not
+#' reopened. For any other resource it is the declaration of the loader
+#' currently registered for it, or `unknown` when none is. A failed attempt
+#' records nothing; a later successful retry records the loader used for it.
+#'
+#' `loader_status` reports current availability for future opening, not how a
+#' cached object was opened. It reports whether the loader is usable, from metadata only:
 #' `registered` (a loader with that id is registered in this session),
 #' `unresolved` (not registered, but a manifest names an adapter package that
 #' is installed; the adapter has **not** been loaded or checked, so it may still
@@ -81,10 +90,7 @@ catalog_for <- function(st, collection = NULL) {
     if (!nrow(o)) return(NULL)
     recs <- co$resources[o$resource]
     state <- vapply(recs, resource_state, "")
-    storage <- vapply(recs, function(r) {
-      l <- find_loader(r$loader)
-      if (is.null(l)) "unknown" else l$storage
-    }, "")
+    storage <- vapply(recs, resource_storage, "")
     mapping <- o$confidence
     for (i in which(state == "ready" & !is.na(o$object))) {
       mapping[i] <- if (o$object[i] %in% recs[[i]]$observed) "verified" else "mismatch"
