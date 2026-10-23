@@ -234,25 +234,191 @@ test_that("script-based datasets run once, on first access, in an isolated envir
   expect_false(exists("script_helper_levels", envir = globalenv(), inherits = FALSE))
 })
 
-test_that("script datasets calling unqualified non-base functions fail clearly, and pkg:: works", {
-  local_clean_session()
+# Startup-package lookup for script datasets (issue 2.5) -----------------------
+
+std_script_library <- function(env = parent.frame()) {
   lib <- fixture_library()
-  withr::defer(unlink(lib, recursive = TRUE))
-  # Installation evaluates scripts with default packages attached, so both install cleanly.
-  fixture_package(lib, "pdscriptfn", "0.1.0", lazy = FALSE,
+  withr::defer(unlink(lib, recursive = TRUE), envir = env)
+  fixture_package(lib, "pdhelper", "0.1.0",
+    code = "pdhelper_fn <- function() 'from-helper'", exports = "pdhelper_fn")
+  fixture_package(lib, "pdstd", "0.1.0", lazy = FALSE,
     scripts = list(
-      unqualified = "unqualified <- head(letters, 3)",
-      qualified = "qualified <- utils::head(letters, 3)"
+      basic = c(
+        "basic_df <- data.frame(g = factor(c('a', 'b', 'a', 'b')), x = c(1, 2, 3, 5))",
+        "basic_head <- head(basic_df, 2)",
+        "basic_design <- model.matrix(~ g + x, basic_df)",
+        "basic_fit <- lm(x ~ g, basic_df)",
+        "basic_pred <- predict(basic_fit, data.frame(g = 'b'))",
+        "basic_cars <- nrow(mtcars)"
+      ),
+      overlap = c("overlap_kron <- kronecker", "overlap_plot <- plot"),
+      shadow = c(
+        "shadow_res <- list(head = head(letters, 2),",
+        "  mm = dim(model.matrix(~ x, data.frame(x = 1:3))), mt = nrow(mtcars))"
+      ),
+      graphics_check = "graphics_check <- is.function(par)",
+      bare_helper = "bare_helper <- exists('pdhelper_fn')",
+      # Guarded because R CMD INSTALL evaluates scripts and may not see the fixture library
+      qualified_helper = "qualified_helper <- if (requireNamespace('pdhelper', quietly = TRUE)) pdhelper::pdhelper_fn() else NA"
+    ),
+    script_docs = list(
+      basic = c("basic_df", "basic_head", "basic_design", "basic_fit", "basic_pred", "basic_cars"),
+      overlap = c("overlap_kron", "overlap_plot"),
+      shadow = "shadow_res", graphics_check = "graphics_check",
+      bare_helper = "bare_helper", qualified_helper = "qualified_helper"
     ))
-  data_attach("pdscriptfn", lib.loc = lib)
+  lib
+}
 
-  expect_error(data_get("unqualified"), "could not find function \"head\"")
-  cat <- data_catalog()
-  expect_equal(cat$state[cat$object %in% "unqualified"], "failed")
-  expect_false(exists("unqualified", envir = globalenv(), inherits = FALSE))
+test_that("script datasets can call standard startup package functions unqualified", {
+  local_clean_session()
+  lib <- std_script_library()
+  data_attach("pdstd", lib.loc = lib)
 
-  expect_identical(data_get("qualified"), letters[1:3])
-  expect_equal(data_catalog()$state[data_catalog()$object %in% "qualified"], "ready")
+  expect_equal(data_get("basic_head")$x, c(1, 2))
+  expect_equal(dim(data_get("basic_design")), c(4L, 3L))
+  expect_equal(colnames(data_get("basic_design")), c("(Intercept)", "gb", "x"))
+  expect_equal(data_get("basic_cars"), 32L)
+  # S3 dispatch on an object created in the script
+  expect_s3_class(data_get("basic_fit"), "lm")
+  expect_equal(unname(data_get("basic_pred")),
+               unname(predict(lm(x ~ g, data.frame(g = factor(c("a", "b", "a", "b")), x = c(1, 2, 3, 5))),
+                              data.frame(g = "b"))))
+})
+
+test_that("script lookup follows startup precedence, and only the fixed set is used", {
+  local_clean_session()
+  lib <- std_script_library()
+  data_attach("pdstd", lib.loc = lib)
+
+  # Names exported by several standard packages resolve like an ordinary session
+  expect_identical(data_get("overlap_kron"), methods::kronecker)
+  expect_identical(data_get("overlap_plot"), graphics::plot)
+
+  pkgs <- c("stats", "graphics", "grDevices", "utils", "datasets", "methods")
+  expect_identical(projectData:::script_packages, pkgs)
+  exports <- lapply(pkgs, projectData:::standard_export_names)
+  names(exports) <- pkgs
+  exports$base <- ls(baseenv(), all.names = TRUE)
+  pkgs_all <- c(pkgs, "base")
+  env <- projectData:::script_lookup_env()
+  dup <- names(which(table(unlist(exports)) > 1))
+  expect_true(all(c("kronecker", "plot") %in% dup))
+  for (nm in dup) {
+    first <- pkgs_all[vapply(exports, function(e) nm %in% e, logical(1))][1]
+    expected <- if (first == "base") get(nm, envir = baseenv()) else getExportedValue(first, nm)
+    expect_identical(get(nm, envir = env), expected, info = nm)
+  }
+  # The chain ends in base, and .GlobalEnv is never on it
+  chain <- list()
+  for (e in list(env)) {
+    while (!identical(e, emptyenv())) { chain <- c(chain, list(e)); e <- parent.env(e) }
+  }
+  expect_length(chain, length(pkgs) + 1L)
+  expect_identical(chain[[length(chain)]], baseenv())
+  expect_false(any(vapply(chain, identical, logical(1), globalenv())))
+
+  # Customized startup settings do not change the supported set
+  withr::local_options(defaultPackages = "base")
+  expect_equal(data_get("basic_cars"), 32L)
+  expect_equal(nrow(data_get("basic_head")), 2L)
+})
+
+test_that("workspace and attached data cannot affect script results", {
+  local_clean_session()
+  lib <- std_script_library()
+  fixture_package(lib, "pdshadow", "0.1.0", lazy = FALSE,
+    datasets = list(shadow_objs = list(head = "attached-head", model.matrix = "attached-mm")))
+  data_attach(c("pdstd", "pdshadow"), lib.loc = lib, on_mask = "ignore")
+
+  assign("head", function(...) stop("global head used"), envir = globalenv())
+  assign("model.matrix", function(...) stop("global model.matrix used"), envir = globalenv())
+  assign("mtcars", "global-mtcars", envir = globalenv())
+  withr::defer(rm(list = c("head", "model.matrix", "mtcars"), envir = globalenv()))
+
+  res <- data_get("shadow_res", collection = "pdstd")
+  expect_equal(res$head, c("a", "b"))
+  expect_equal(res$mm, c(3L, 2L))
+  expect_equal(res$mt, 32L)
+})
+
+test_that("additional attached packages are not visible unqualified, but qualified calls work", {
+  local_clean_session()
+  lib <- std_script_library()
+  withr::local_libpaths(lib, action = "prefix")
+  suppressPackageStartupMessages(library("pdhelper", lib.loc = lib))
+  withr::defer(detach("package:pdhelper", unload = TRUE, character.only = TRUE))
+  expect_true(is.function(pdhelper_fn))
+  data_attach("pdstd", lib.loc = lib)
+
+  expect_true("package:pdhelper" %in% search())
+  expect_false(data_get("bare_helper"))
+  expect_error(eval(quote(pdhelper_fn()), new.env(parent = projectData:::script_lookup_env())),
+               "could not find function \"pdhelper_fn\"")
+  expect_identical(data_get("qualified_helper"), "from-helper")
+  expect_equal(data_catalog()$state[data_catalog()$object %in% "qualified_helper"], "ready")
+})
+
+test_that("opening a script dataset leaves the search path unchanged", {
+  local_clean_session()
+  lib <- std_script_library()
+  data_attach("pdstd", lib.loc = lib)
+
+  before <- search()
+  expect_equal(data_get("basic_cars"), 32L)
+  expect_identical(search(), before)
+
+  # a standard package that is not attached is still usable, and stays detached
+  pos <- match("package:graphics", search())
+  detach("package:graphics")
+  withr::defer(suppressWarnings(library("graphics", pos = pos, character.only = TRUE)))
+  before <- search()
+  expect_true(data_get("graphics_check"))
+  expect_identical(search(), before)
+  expect_false("package:graphics" %in% search())
+})
+
+test_that("building the lookup environment retrieves no values", {
+  n <- 0L
+  counting <- function(pkg, name) {
+    n <<- n + 1L
+    getExportedValue(pkg, name)
+  }
+  env <- projectData:::script_lookup_env(counting)
+  expect_equal(n, 0L)
+  expect_true(exists("mtcars", envir = env) && exists("median", envir = env) &&
+                exists("setClass", envir = env))
+  expect_equal(n, 0L)
+  expect_equal(eval(quote(head(1:5, 2)), new.env(parent = env)), 1:2)
+  expect_equal(n, 1L)
+  # Construction does not run during inventory or attachment
+  local_clean_session()
+  lib <- std_script_library()
+  calls <- new.env()
+  calls$n <- 0L
+  bump <- function() calls$n <- calls$n + 1L
+  suppressMessages(trace("script_lookup_env", bquote(.(bump)()), print = FALSE,
+                         where = asNamespace("projectData")))
+  withr::defer(suppressMessages(untrace("script_lookup_env", where = asNamespace("projectData"))))
+  data_query("pdstd", lib.loc = lib)
+  data_attach("pdstd", lib.loc = lib)
+  data_catalog()
+  expect_equal(calls$n, 0L)
+  data_get("basic_cars")
+  expect_equal(calls$n, 1L)
+})
+
+test_that("script outputs contain only what the script assigned", {
+  local_clean_session()
+  lib <- std_script_library()
+  data_attach("pdstd", lib.loc = lib)
+  expect_warning(data_inspect("pdstd", "basic"), class = "projectData_inspection")
+  expect_setequal(
+    data_catalog()$object[data_catalog()$resource %in% "basic"],
+    c("basic_df", "basic_head", "basic_design", "basic_fit", "basic_pred", "basic_cars")
+  )
+  expect_false(any(c("head", "model.matrix", "mtcars", "lm") %in% data_catalog()$object))
+  expect_false(exists("basic_df", envir = globalenv(), inherits = FALSE))
 })
 
 # Discovery collisions and manifest resolution -------------------------------

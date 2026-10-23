@@ -289,6 +289,43 @@ fetch_adapter_loaders <- function(package, export) {
 
 find_loader <- function(id) .state$loaders[[id]]
 
+# Script evaluation lookup ---------------------------------------------------
+
+# Fixed set, in the lookup order of an ordinary R startup after .GlobalEnv
+# (search() gives stats, graphics, grDevices, utils, datasets, methods, base).
+# Deliberately not derived from options("defaultPackages") or search().
+script_packages <- c("stats", "graphics", "grDevices", "utils", "datasets",
+                     "methods")
+
+# Names visible through package::name without retrieving any values.
+standard_export_names <- function(pkg) {
+  ns <- asNamespace(pkg)
+  if (identical(pkg, "datasets")) {
+    ls(getNamespaceInfo(ns, "lazydata"), all.names = TRUE)
+  } else {
+    getNamespaceExports(ns)
+  }
+}
+
+# Chain of environments (stats at the head, then ..., methods) ending in
+# baseenv(), whose parent is emptyenv(): .GlobalEnv is never reached. Each
+# export is a promise for getExportedValue(), so nothing is retrieved until a
+# script uses it, and functions keep their own environments. `getter` exists so
+# tests can count retrievals. Nothing is attached to the search path.
+script_lookup_env <- function(getter = getExportedValue) {
+  bind <- function(name, pkg, layer) {
+    force(name); force(pkg)
+    delayedAssign(name, getter(pkg, name), assign.env = layer)
+  }
+  parent <- baseenv()
+  for (pkg in rev(script_packages)) {
+    layer <- new.env(parent = parent)
+    for (nm in standard_export_names(pkg)) bind(nm, pkg, layer)
+    parent <- layer
+  }
+  parent
+}
+
 # Built-in loaders -----------------------------------------------------------
 
 register_builtin_loaders <- function() {
@@ -296,9 +333,9 @@ register_builtin_loaders <- function() {
     data_loader(
       "projectData::dataset",
       open = function(descriptor, paths, context) {
-        # baseenv() lets data/*.R scripts find base functions and `<-` without
-        # reaching the global workspace or attached packages.
-        env <- new.env(parent = baseenv())
+        # Scripts see the standard startup packages, not the global workspace
+        # or other attached packages; outputs go to a separate, fresh frame.
+        env <- new.env(parent = script_lookup_env())
         utils::data(list = descriptor$resource, package = context$package,
                     lib.loc = context$library, envir = env, overwrite = TRUE)
         mget(sort(ls(env, all.names = TRUE)), envir = env)

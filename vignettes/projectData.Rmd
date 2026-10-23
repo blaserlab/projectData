@@ -236,6 +236,18 @@ anything is changed.
 To clear decisions, use `data_prefer("counts_rna", NULL)`
 and `data_primary(NULL)`.
 
+## Script datasets
+
+A package that ships non-lazy data scripts (`data/*.R`) is opened by running
+the script, only on first access. The script sees the functions and data of the
+standard startup packages (stats, graphics, grDevices, utils, datasets,
+methods and base, in the order of an ordinary R session), so `head()` or
+`model.matrix()` work unqualified. That set is fixed; it does not follow your
+`defaultPackages` option or your search path. Your workspace and any other
+attached package are not visible, so qualify calls to other packages
+(`otherpkg::fn()`). This isolates names; it is not a security sandbox. See the
+"Script datasets" section of `?data_attach`.
+
 ## Cleaning up
 
 ```{r cleanup}

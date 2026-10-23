@@ -13,20 +13,27 @@ fixture_library <- function() {
 # scripts: named list, stem -> character vector of lines written to
 #   data/<stem>.R (script datasets; use lazy = FALSE to keep them runtime-evaluated).
 #   `script_docs` gives the object names documented for each script stem.
+# code: character vector of R source lines (installed as R/code.R); `exports`
+#   names the functions to export (so the package can be attached for tests).
 # drop_index: stems whose rows are removed from Meta/data.rds after install,
 #   simulating an incomplete index.
 fixture_package <- function(lib, name, version = "0.1.0", lazy = TRUE,
                             datasets = list(), documented = NULL,
                             files = list(), manifest = NULL,
                             drop_index = character(),
-                            scripts = list(), script_docs = NULL) {
+                            scripts = list(), script_docs = NULL,
+                            code = NULL, exports = character()) {
   src <- file.path(tempfile("pd-src-"), name)
   dir.create(file.path(src, "man"), recursive = TRUE)
   writeLines(c(paste("Package:", name), "Title: Fixture", paste("Version:", version),
                "Description: Synthetic fixture.", "License: GPL-3", "Author: fixture",
                paste("LazyData:", if (lazy) "true" else "false")),
              file.path(src, "DESCRIPTION"))
-  writeLines("", file.path(src, "NAMESPACE"))
+  writeLines(paste0("export(", exports, ")"), file.path(src, "NAMESPACE"))
+  if (length(code)) {
+    dir.create(file.path(src, "R"))
+    writeLines(code, file.path(src, "R", "code.R"))
+  }
   if (length(datasets) || length(scripts)) dir.create(file.path(src, "data"))
   for (stem in names(scripts)) {
     writeLines(scripts[[stem]], file.path(src, "data", paste0(stem, ".R")))

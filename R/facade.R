@@ -162,13 +162,27 @@ data_masking <- function() {
 #' @section Script datasets (`data/*.R`):
 #' Packages that ship non-lazy data scripts are supported. The script is run
 #' only when its resource is first opened, by [utils::data()], in a fresh
-#' environment whose parent is [baseenv()]. Base functions and `<-` are found;
-#' the global workspace and attached packages are not visible. Calls to
-#' functions from other packages, including `stats` and `utils`, must be
-#' qualified (`stats::rnorm()`, `utils::head()`), otherwise opening fails with
-#' "could not find function" and the resource is marked failed (see
-#' [data_retry()]). `R CMD INSTALL` evaluates such scripts with default packages
-#' attached, so an unqualified call can install cleanly and fail only here.
+#' environment that holds only the script's outputs. Its enclosing lookup chain
+#' is the fixed set of standard startup packages, in ordinary startup order:
+#' stats, graphics, grDevices, utils, datasets, methods, then base. Unqualified
+#' calls such as `head()` or `model.matrix()` therefore work, and method
+#' dispatch is unchanged. The set does not follow `options("defaultPackages")`,
+#' startup profiles or the current search path.
+#'
+#' The global workspace, projectData's attached data environment and other
+#' attached packages are not on the lookup path. Calls to any other package
+#' must be qualified (`otherpkg::fn()`); otherwise opening fails with "could
+#' not find function" and the resource is marked failed (see [data_retry()]).
+#' `R CMD INSTALL` evaluates scripts in its own session, so an unqualified call
+#' can install cleanly and fail only here.
+#'
+#' Nothing is attached to the search path. Exports are exposed lazily, as
+#' promises for `package::name`, so package datasets are not retrieved merely
+#' because their names are visible, and functions keep their own environments;
+#' standard package namespaces are loaded if needed. Limits: the `Autoloads`
+#' environment is not included; a script that calls `library()`, `attach()`,
+#' [globalenv()] or `get(envir = globalenv())` can still reach or change the
+#' session. This arrangement separates names; it is not a security sandbox.
 #'
 #' @param packages Names of installed packages to attach.
 #' @param lib.loc Library directories searched, in order, for each package.
