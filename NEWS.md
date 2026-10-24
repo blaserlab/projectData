@@ -1,4 +1,16 @@
-# projectData 0.0.0.9005 (development version)
+# projectData 0.0.0.9006 (development version)
+
+## Changes in this version
+
+* Manifest validation and authoring against a verified package source tree now
+  accept `Source` paths that pass through a symbolic link under `inst/` (e.g.
+  `inst/extdata -> /shared/data`), provided the final path exists. `Source`
+  stays package-relative. `data/`, installed packages and standalone
+  directories keep strict physical containment, and a directory with
+  installation artifacts (`Meta/`, `R/<pkg>.rdb`) is never treated as a source
+  tree. Authors must still verify that built archives contain the data.
+
+# projectData 0.0.0.9005
 
 ## Changes in this version
 

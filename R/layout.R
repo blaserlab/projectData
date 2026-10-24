@@ -23,8 +23,16 @@ read_source_description <- function(root) {
   m[1, ]
 }
 
+# Installed packages are recognized by any installation artifact, so a source
+# tree is only ever a directory with none of them.
+looks_installed <- function(root) {
+  pkg <- read_source_description(root)[["Package"]]
+  file.exists(file.path(root, "Meta", "package.rds")) || dir.exists(file.path(root, "Meta")) ||
+    (!is.na(pkg) && file.exists(file.path(root, "R", paste0(pkg, ".rdb"))))
+}
+
 detect_layout <- function(root) {
-  if (file.exists(file.path(root, "Meta", "package.rds"))) return("installed")
+  if (looks_installed(root)) return("installed")
   if (!is.na(read_source_description(root)[["Package"]])) return("source")
   "standalone"
 }
@@ -182,9 +190,12 @@ stage_source_layout <- function(src) {
     }
     linked[[length(linked) + 1L]] <- list(to = to, from = entries[[nm]])
   }
+  allowed <- normalizePath(c(stage, data_dir, inst)[c(TRUE, dir.exists(data_dir), dir.exists(inst))],
+                           winslash = "/", mustWork = TRUE)
+  # Logical roots that may be symlinked out of the tree: top-level inst/ entries only.
+  attr(allowed, "inst_entries") <- if (dir.exists(inst)) list.files(inst) else character()
   out <- list(root = normalizePath(stage, winslash = "/", mustWork = TRUE), close = close,
-              allowed = normalizePath(c(stage, data_dir, inst)[c(TRUE, dir.exists(data_dir), dir.exists(inst))],
-                                      winslash = "/", mustWork = TRUE))
+              allowed = allowed)
   ok <- TRUE
   out
 }
@@ -195,6 +206,9 @@ authoring_view <- function(root, layout = "auto") {
   root <- normalizePath(root, winslash = "/", mustWork = TRUE)
   layout <- resolve_layout(root, layout)
   if (identical(layout, "source")) {
+    # Re-verify here: only a tree with no installation artifacts gets the
+    # relaxed source-authoring path rules.
+    if (looks_installed(root)) pd_abort("`root` is an installed package, not a source tree: ", root, ".")
     st <- stage_source_layout(root)
     return(list(layout = layout, root = st$root, source_root = root, allowed = st$allowed,
                 close = st$close, context = root_context(st$root, layout, root)))

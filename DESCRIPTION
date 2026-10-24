@@ -1,6 +1,6 @@
 Package: projectData
 Title: Deferred Access to Installed Data Collections
-Version: 0.0.0.9005
+Version: 0.0.0.9006
 Authors@R: 
     person("Brad", "Blaser", , "bradley.blaser@osumc.edu", role = c("aut", "cre", "cph"),
            comment = c(ORCID = "0000-0002-3168-5423"))

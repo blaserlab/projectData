@@ -25,6 +25,7 @@ Read the source when available. Verify license/attribution before reusing code. 
 - Manifests are optional, versioned, validated additions for special formats/mappings. They contain relative paths and declarative loader references, not executable code strings or serialized functions.
 - Do not enumerate extdata and assume all files are public data objects.
 - Namespace-load optional dependencies on access; do not attach them. Missing specialized loaders must not block unrelated objects.
+- Source-tree authoring may follow symlinks under top-level `inst/` entries that lead outside the tree (logical containment plus existence); this holds only for a verified source tree (`authoring_view()`, no `Meta/`/`R/<pkg>.rdb`), never for `data/`, installed or standalone roots, or runtime resolution (`resolve_inside_root()` without the `inst_entries` attribute). Manifests always store package-relative `Source` (e.g. `extdata/x`), and symlinked data portability must be verified via `R CMD build`.
 - Treat installed data as read-only. Allocate distinct work locations when an adapter requires writable files. Preserve backing-file lifetime for returned objects; detach is not permission to delete live resources.
 - Report ready/opened state accurately: opening a disk-backed object does not mean its matrix was loaded into RAM.
 - Loading, installation, distribution, and computation are separate concerns. Do not recreate the lab package manager. ExperimentHub/Zenodo retrieval is an extension point, not a first-release requirement.

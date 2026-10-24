@@ -31,11 +31,18 @@ is_safe_relative_path <- function(path) {
 }
 
 # Guards against symlinks that leave the root. `allowed` replaces the root as
-# the boundary for a staged source layout (see layout.R).
+# the physical boundary for a staged source layout (see layout.R). When it
+# carries an `inst_entries` attribute (set only by a verified source-tree
+# view), a path whose first component is a top-level entry of the source
+# `inst/` is accepted on logical containment plus existence, so authors can
+# symlink `inst/extdata` to shared storage. Everything else, including `data/`
+# and every installed or standalone root, stays physically contained.
 resolve_inside_root <- function(root, relative, allowed = NULL) {
   full <- file.path(root, relative)
   if (!file.exists(full)) return(NA_character_)
   real <- normalizePath(full, winslash = "/", mustWork = TRUE)
+  first <- strsplit(relative, "/", fixed = TRUE)[[1]][1]
+  if (is_safe_relative_path(relative) && first %in% attr(allowed, "inst_entries")) return(real)
   bounds <- allowed %||% normalizePath(root, winslash = "/", mustWork = TRUE)
   if (!any(startsWith(real, paste0(sub("/$", "", bounds), "/")))) return(NA_character_)
   real

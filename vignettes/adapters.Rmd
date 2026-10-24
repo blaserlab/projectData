@@ -169,6 +169,15 @@ callbacks work with, are relative to the **installed** package root, where
   removed, a `projectData_cleanup_warning` names it and any authoring error is
   still reported as such.
   Use an environment that supports links, or one of the next two kinds of root.
+  In a verified source tree (a `DESCRIPTION`, no installation artifacts such as
+  `Meta/`), a top-level entry of `inst/` may itself be a symbolic link, e.g.
+  `inst/extdata -> /shared/data/project`. A `Source` such as
+  `extdata/example_resource` is then accepted if the final path exists; it is
+  always stored as that package-relative path, never the physical target. This
+  relaxation does not apply to `data/`, installed packages or standalone
+  directories, which keep strict containment, nor does it make the package
+  portable: check that `R CMD build` places regular files, not links, in your
+  tarball.
 * an **installed package** directory, used as is;
 * a **standalone resource directory**, used as is. This is the earlier
   convention of passing `inst/`; it still works for `extdata/` resources but

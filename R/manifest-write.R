@@ -49,7 +49,18 @@ manifest_default_export <- "projectData_loaders"
 #'   only the links created for the call, never their targets. Neither `data/` nor `inst/` is modified, nothing is
 #'   installed, and no dataset is loaded or script run: standard datasets are
 #'   recognized from their file names, so their object names stay unknown.
-#'   Resolved files must stay inside the package's `data/` and `inst/`.
+#'   Resolved files must stay inside the package's `data/` and `inst/`, with
+#'   one authoring exception: a `Source` whose first component is a top-level
+#'   entry of the source `inst/` may pass through symbolic links that lead
+#'   outside the tree (e.g. `inst/extdata -> /shared/data/project`), provided
+#'   the final path exists. The exception holds only for a verified source tree
+#'   (a `DESCRIPTION` and no installation artifacts such as `Meta/` or
+#'   `R/<pkg>.rdb`), never for `data/`, installed packages or standalone
+#'   directories, and `Source` stays package-relative (`extdata/example_resource`);
+#'   the physical target is never stored. Installed packages keep strict
+#'   containment: a path resolving outside the installed root is rejected.
+#'   An accessible symlink does not prove the data will ship: verify that
+#'   `R CMD build` puts regular files in the tarball for your layout.
 #' * an **installed package** directory (has `Meta/package.rds`), used as is.
 #' * a **standalone resource directory** (neither of the above), used as is.
 #'   This is the earlier convention of passing `inst/` of a source tree; it
