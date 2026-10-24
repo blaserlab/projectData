@@ -11,9 +11,68 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-projectData makes the objects in installed data packages available under the
-names you expect, and reads each object only when you first use it. The normal
-workflow has three steps:
+## Why projectData?
+
+R packages are an effective way to distribute research data. A package carries a
+version, documentation for each dataset, and a defined installation location,
+and R already provides mature ways to reach the contents: `data()`, lazy
+loading of package data, and namespace-qualified access such as `pkg::object`.
+For a single data package these tools are usually all that is needed, and
+projectData is designed to work alongside them, not to replace them.
+
+Difficulties tend to appear when an analysis depends on several independently
+distributed collections. Data may be divided between a primary project package
+and supplementary or reference packages, and different collections may define
+objects with the same name. Attaching packages or calling `data()` for each one
+leaves the choice of source to attachment order or to repeated manual
+qualification, which is hard to keep consistent across a project. Some
+resources are also large or stored in formats that ordinary deserialization
+cannot restore, such as disk-backed matrices, so they need a format-specific
+restoration step and should stay unopened until they are used. Finally, it is
+often useful to ask what a project has available, and which installed package
+version and library each object came from, without reading any data. This
+matters most when several versions or libraries are present. These are
+workflow and coordination problems. They do not reflect a limitation of base
+R, and many projects never meet them.
+
+projectData is a small coordination layer over installed data packages. Calling
+`data_attach()` on a package registers it as a named
+*collection* and records an inventory of its resources, along with the package
+name, version, and the installation root that was resolved. Registering reads
+package metadata only; no data values are read. Objects are then read on first
+access, and `data_get()` can return an object from a named collection or
+package without attaching anything. When collections share a name, projectData does
+not pick a winner by attachment order. You can designate a primary collection,
+state a preference for individual objects, or add suffix aliases. An unresolved
+conflict produces an error that lists the candidates. Attachment is optional
+and happens only when you request it, so objects can also be reached without
+adding names to the search path. `data_catalog()` and `data_info()` report
+provenance from the recorded metadata alone. Ordinary data packages need no
+changes to work this way. An optional, validated manifest can describe special
+files or object mappings, and a versioned loader interface lets an *adapter*
+supply the discovery and opening steps for a specialized storage format.
+
+This division keeps the core package light. The core handles registration,
+resolution, caching, and provenance, and it reads ordinary datasets and
+explicitly described RDS files. Format-specific code lives in separate adapter
+packages that you choose to install. For example, an adapter for Monocle 3
+`cell_data_set` objects backed by BPCells matrices could be distributed as its
+own package, say `projectData.monocle3`, so that projectData does not depend on
+monocle3 or BPCells. No such adapter is part of this package (see the
+[adapter vignette](adapters.html)). Missing or unavailable adapters affect only
+the resources that need them.
+
+projectData is not a package manager. It never installs or updates data
+packages, and it does not replace distribution through CRAN, Bioconductor,
+Zenodo, or similar channels. It cannot make compatible software versions or
+external backing files available, and it does not by itself make an analysis
+reproducible. It is also not a data-processing framework. If `data()` and
+namespace-qualified access already meet your needs, you can keep using them.
+projectData is intended for projects that need consistent access to several
+collections, deferred opening of large or specialized resources, and a record of
+where each object came from.
+
+The normal workflow has three steps:
 
 1. **Install** the data package.
 2. **Attach** it.
@@ -21,7 +80,7 @@ workflow has three steps:
 
 Need another data package later? Attach it too. If the packages define the same
 name, projectData asks you to decide which one you mean (see
-[Conflicts](#conflicts)); it never picks a winner by order.
+[Conflicts](#conflicts)).
 
 ## 1. Install
 

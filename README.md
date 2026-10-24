@@ -28,6 +28,19 @@ which names would collide, without attaching or remembering anything.
 See `vignette("projectData")` and `vignette("adapters")`. Installation of data
 packages (including from tarballs) is separate from attaching them.
 
+## Where it fits
+
+`data()`, lazy loading and `pkg::object` already work well for a single data
+package, and projectData complements them. It addresses coordination problems
+that arise when a project uses several independently distributed collections:
+overlapping object names, large or disk-backed resources that should stay
+unopened until used, formats that need their own restoration step, and the need
+to see which installed package version and library each object came from.
+Ordinary data packages work without changes; optional manifests and adapters
+cover special formats. It does not install or update data packages and does not
+replace CRAN, Bioconductor or Zenodo. If `data()` already meets your needs, you
+can keep using it.
+
 ## Scope and limits
 
 * Not a package manager, not an out-of-memory computation engine, and no
