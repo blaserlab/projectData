@@ -22,6 +22,15 @@
   different installation for an existing id now fails with
   `projectData_installation_conflict` (and with the stale-installation error if
   the registered one changed) unless `replace = TRUE`.
+* Resource working directories (for loaders that need a writable copy) are now
+  built from safe path components. Both the collection id and the resource name
+  are encoded injectively (only `a-z`, `0-9` and `-` pass through; every other
+  byte, including uppercase letters, becomes `%XX`), so path separators or `..`
+  can no longer move a directory out of `projectData-work`, and distinct
+  identities such as `a/b` and `a_b` never share a directory. Directory names for
+  ids or resources containing uppercase letters, `_` or `.` differ from earlier
+  versions. Caching, directory reuse and lifetime are unchanged; existing
+  directories are never deleted.
 
 # projectData 0.0.0.9006
 

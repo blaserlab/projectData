@@ -177,8 +177,26 @@ source_size_text <- function(co, rec) {
          " on disk: ", rec$source, "]")
 }
 
+# Injective encoding of an arbitrary string as one filesystem component: only
+# [a-z0-9-] pass through; every other byte (including "%", ".", "_", "/", "\\",
+# and uppercase letters, which collide on case-insensitive filesystems) becomes
+# %XX. Distinct inputs therefore give distinct outputs, and the result can never
+# be "." or "..", or contain a separator. The empty string maps to "%00", which
+# no real input can produce because strings cannot contain NUL.
+path_component <- function(x) {
+  x <- as.character(x)
+  if (length(x) != 1L || is.na(x)) pd_abort("A path component must be a single non-missing string.")
+  if (!nzchar(x)) return("%00")
+  bytes <- charToRaw(enc2utf8(x))
+  keep <- (bytes >= as.raw(0x61) & bytes <= as.raw(0x7a)) |
+    (bytes >= as.raw(0x30) & bytes <= as.raw(0x39)) | bytes == as.raw(0x2d)
+  parts <- ifelse(keep, rawToChar(bytes, multiple = TRUE), sprintf("%%%02X", as.integer(bytes)))
+  paste(parts, collapse = "")
+}
+
 work_dir_for <- function(co, rec) {
-  stem <- file.path(tempdir(), "projectData-work", co$id, gsub("[^A-Za-z0-9._-]", "_", rec$resource))
+  root <- file.path(tempdir(), "projectData-work")
+  stem <- file.path(root, path_component(co$id), path_component(rec$resource))
   # The counter restarts when the package is reloaded in a session, so skip
   # directories an earlier load already made instead of reusing them.
   repeat {
