@@ -1,4 +1,29 @@
-# projectData 0.0.0.9006 (development version)
+# projectData 0.0.0.9007 (development version)
+
+## Changes in this version
+
+* Changed installations are now detected reliably. The registered installation
+  is compared with the metadata on disk at its recorded root (never a loaded
+  namespace), and the library entry must still lead to that root. Previously a
+  library link repointed to another installation (pak/renv-style stores) left
+  the physically resolved root untouched, so `data_attach()` was a silent no-op
+  and bindings stayed stale. The identity also covers every file in `Meta/`
+  and the manifest, so same-version reinstalls are caught without relying on one
+  timestamp.
+* The stale-installation error names the collection, path, registered and
+  current version and the exact `data_attach(..., replace = TRUE)` command, and
+  states that objects already held elsewhere keep the old value. It is raised
+  before registration, bindings, preferences or attachment change.
+* `data_attach(replace = TRUE)` for an existing id keeps omitted `lib.loc`
+  (the library of the current installation, not `.libPaths()`), `suffix` and
+  `include`; explicit arguments win. A failed replacement keeps the previous
+  state (class `projectData_replace_failed`). Old resource records and caches are
+  discarded whenever the installation changed. A `lib.loc` that selects a
+  different installation for an existing id now fails with
+  `projectData_installation_conflict` (and with the stale-installation error if
+  the registered one changed) unless `replace = TRUE`.
+
+# projectData 0.0.0.9006
 
 ## Changes in this version
 

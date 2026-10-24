@@ -15,24 +15,48 @@ resolve_installation <- function(package, lib.loc) {
              paste(search_libs, collapse = ", "), ".",
              class = "projectData_not_installed")
   }
+  # `entry` is the path the library lists, with symlinks left unresolved, so a
+  # later repointing of a link (pak, renv, Nix-style stores) can be noticed;
+  # `root` is where the files physically are.
+  entry <- absolute_path(root[[1]])
   root <- normalizePath(root[[1]], winslash = "/", mustWork = TRUE)
   desc <- installed_description(root)
-  list(root = root, library = dirname(root), version = desc[["Version"]],
+  list(root = root, entry = entry, library = dirname(root), version = desc[["Version"]],
        identity = installed_identity(root))
+}
+
+absolute_path <- function(path) {
+  path <- path.expand(path)
+  if (!grepl("^(/|[A-Za-z]:)", path)) path <- file.path(getwd(), path)
+  gsub("/+", "/", gsub("\\\\", "/", path))
 }
 
 installed_description <- function(root) {
   readRDS(file.path(root, "Meta", "package.rds"))$DESCRIPTION
 }
 
+# Version of whatever is on disk now, or NA when it cannot be read (removed, or
+# half-written by a running installation). Always read from the files.
+installed_version_now <- function(root) {
+  tryCatch(as.character(installed_description(root)[["Version"]]),
+           error = function(e) NA_character_, warning = function(w) NA_character_)
+}
+
 # Version alone is insufficient: Built has one-second resolution, so the
-# installed index's size and modification time are added. The (small) metadata
-# file is stat()ed, never the data.
+# size and modification time of the installed metadata (`Meta/`) and of the
+# manifest are added. Only stat() is used, never a read of the data, and nothing
+# here comes from a loaded namespace. Files in `data/` are deliberately left out:
+# removing or altering a single data file after registration is reported when
+# that file is opened, not as a changed installation.
 installed_identity <- function(root) {
   desc <- installed_description(root)
-  info <- file.info(file.path(root, "Meta", "package.rds"))
-  paste(desc[["Version"]], desc[["Built"]] %||% NA_character_,
-        format(as.numeric(info$mtime), digits = 17), info$size, sep = " | ")
+  files <- c(list.files(file.path(root, "Meta"), full.names = TRUE),
+             file.path(root, manifest_path))
+  files <- sort(files[file.exists(files)])
+  info <- file.info(files)
+  stamp <- paste(substring(files, nchar(root) + 2L), format(as.numeric(info$mtime), digits = 17),
+                 info$size, sep = ":", collapse = ";")
+  paste(desc[["Version"]], desc[["Built"]] %||% NA_character_, stamp, sep = " | ")
 }
 
 # Standard datasets ----------------------------------------------------------

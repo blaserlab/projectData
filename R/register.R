@@ -23,7 +23,7 @@ build_collection <- function(package, lib.loc, id, suffix, include) {
   resources <- stats::setNames(lapply(descriptors, function(d) new_resource(id, d)),
                                vapply(descriptors, function(d) d$resource, ""))
   list(id = id, package = package, version = inst$version, identity = inst$identity,
-       library = inst$library, root = inst$root, suffix = suffix, include = include,
+       library = inst$library, root = inst$root, entry = inst$entry, suffix = suffix, include = include,
        resources = resources, objects = objects, attached = FALSE)
 }
 
@@ -51,11 +51,17 @@ carry_resources <- function(new, old) {
 }
 
 # Builds collections and adds them to a candidate state; nothing is committed.
+# When an id is replaced by the same package, omitted `lib.loc`, `suffix` and
+# `include` keep the current collection's settings (`lib.loc` falls back to the
+# library its installation was found in, never to `.libPaths()`); explicit
+# values win. Resource records are never carried over across a changed
+# installation (see `carry_resources()`).
 add_collections <- function(cand, packages, lib.loc, id, suffix, include, replace) {
   n <- length(packages)
   stopifnot(is.character(packages), n >= 1L, length(id) == n)
   id <- as.character(id)
   if (anyDuplicated(id)) pd_abort("Collection ids must be unique: ", quote_names(id[duplicated(id)]), ".")
+  suffix_given <- !is.null(suffix)
   suffix <- if (is.null(suffix)) rep(NA_character_, n) else as.character(suffix)
   if (length(suffix) != n) pd_abort("`suffix` must have one element per package.")
   if (!is.null(include) && !is.list(include)) {
@@ -71,9 +77,13 @@ add_collections <- function(cand, packages, lib.loc, id, suffix, include, replac
              ". Use replace = TRUE or data_detach() first.")
   }
   for (i in seq_len(n)) {
+    old <- cand$collections[[id[i]]]
+    keep <- !is.null(old) && identical(old$package, packages[i])
+    lib_i <- lib.loc %||% if (keep) dirname(old$entry %||% old$root)
+    suffix_i <- if (!suffix_given && keep) old$suffix else suffix[i]
+    include_i <- if (id[i] %in% names(include) || !keep) include[[id[i]]] else old$include
     cand$collections[[id[i]]] <- carry_resources(
-      build_collection(packages[i], lib.loc, id[i], suffix[i], include[[id[i]]]),
-      cand$collections[[id[i]]])
+      build_collection(packages[i], lib_i, id[i], suffix_i, include_i), old)
   }
   cand
 }

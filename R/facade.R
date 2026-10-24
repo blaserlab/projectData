@@ -131,19 +131,51 @@ data_masking <- function() {
 #'
 #' An attached package is a *collection* with an id (by default the package
 #' name). Use `id` to attach the same package twice, for example two installed
-#' versions from different libraries. Attaching an id that is already attached
-#' from the same package does nothing, unless the installed package has changed
-#' since, which is an error asking for `replace = TRUE`. Registration arguments
-#' (`lib.loc`, `suffix`, `include`) for an id that is already attached also need
-#' `replace = TRUE`.
+#' versions from different libraries: distinct ids are the only way to keep two
+#' installations side by side.
 #'
+#' @section Installation lifecycle and `replace`:
 #' The installed copy is resolved once, here, from `lib.loc` (default
-#' [.libPaths()]); later changes to [.libPaths()] cannot redirect a pending
-#' read. If the installed package is replaced in place before an object is
-#' opened, opening fails informatively and you re-attach with `replace = TRUE`.
-#' Objects you already hold are not closed, but replacing or removing an
-#' installation is not covered by any guarantee for them: see the "Lifetime of
-#' opened objects" section of [data_detach()].
+#' [.libPaths()]), and that installation (its root, version and an identity made
+#' from the stat() of its metadata files, never from a loaded namespace) is
+#' recorded with the collection. Later changes to [.libPaths()] cannot redirect
+#' it.
+#'
+#' Attaching an id that is already attached or registered from the same package,
+#' without `lib.loc`, `suffix`, `include` or `replace`, does nothing **if the
+#' recorded installation is unchanged**. The recorded installation is compared with the files on disk each time: a newer
+#' version, a reinstall of the same version, a removal, or a library link that
+#' now leads elsewhere all count as changed. A changed installation is an error
+#' (class `projectData_stale_installation`) before anything is touched. It names
+#' the collection, the path, the registered and current versions and the command
+#' that switches. The same check runs before any resource is opened, so a
+#' pending read never reads a replaced installation. A `lib.loc` that selects a
+#' different installation for an existing id is likewise an error
+#' (`projectData_installation_conflict`) unless `replace = TRUE`; any `lib.loc`,
+#' `suffix` or `include` for an existing id needs `replace = TRUE`.
+#'
+#' `replace = TRUE` re-registers the collection under the **same id**. The new
+#' registration and the resulting name resolution are built and validated first;
+#' only then are they committed, so there is never a second collection or a
+#' second search-path entry. The old resource records and their caches are always
+#' discarded when the installation changed, even if resource names and
+#' descriptors are identical, so every later access, attached or explicit, reads
+#' from the new installation. Omitted arguments keep the current collection's
+#' settings when the same package is replaced: `lib.loc` defaults to the library
+#' the collection was found in (not [.libPaths()]), `suffix` and `include` are
+#' kept, and so are the primary designation and preferences. Give an argument to
+#' change it (`suffix = NA` removes a suffix). Preferences and the primary must
+#' remain valid; if they would not, the replacement fails (class
+#' `projectData_replace_failed` added) and the previous registration, bindings,
+#' preferences and attachment state are kept. Keeping those records does not
+#' restore backing files that were already overwritten.
+#'
+#' Replacement changes projectData's registration and bindings only. Objects you
+#' already assigned elsewhere are not modified or repaired:
+#' after `old_cds <- cds_main; data_attach("pkg", replace = TRUE)`, `old_cds`
+#' still holds the old returned object, and it may stop working if the installed
+#' files it reads from were overwritten. See the "Lifetime of opened objects"
+#' section of [data_detach()].
 #'
 #' @section Name conflicts:
 #' Name resolution is metadata-only. The bare name of an object that exists in
@@ -222,7 +254,8 @@ data_masking <- function() {
 #'   package.
 #' @param primary `NULL` or the id of the collection whose objects keep bare
 #'   names when contested. Equivalent to calling [data_primary()].
-#' @param replace Replace collections that are already attached.
+#' @param replace Replace the registration of collections that already exist
+#'   (see "Installation lifecycle and `replace`").
 #' @param name Search-path name of the environment.
 #' @param pos Search-path position.
 #' @param on_mask One of `"warn"`, `"error"`, `"ignore"`.
@@ -246,20 +279,55 @@ data_attach <- function(packages, lib.loc = NULL, id = packages,
   # A registration that data_get() made without attaching may be rebuilt freely
   # (its resource records are reused); only attached ids need `replace`.
   unattached <- registered & !vapply(id, function(i) isTRUE(cand$collections[[i]]$attached), NA)
-  existing <- registered & !replace & is.null(lib.loc) & is.null(suffix) & is.null(include)
+  # With no registration arguments the id alone selects the collection: it is
+  # reused as registered, after its installation has been compared with the
+  # files on disk. An explicit `lib.loc` is checked against the registered
+  # installation first, but still needs `replace = TRUE`.
+  existing <- registered & !replace & is.null(suffix) & is.null(include)
   for (i in which(existing)) {
     co <- get_collection(id[i], cand)
     if (!identical(co$package, packages[i])) {
       pd_abort("Collection id '", id[i], "' is already ", if (isTRUE(co$attached)) "attached" else "registered", " from package '", co$package,
                "', not '", packages[i], "'. Choose another `id`, or use replace = TRUE.")
     }
+    if (!is.null(lib.loc)) {
+      want <- resolve_installation(packages[i], lib.loc)
+      if (!identical(want$root, co$root)) {
+        pd_abort("Collection '", id[i], "' is already ", if (isTRUE(co$attached)) "attached" else "registered",
+                 " from the installation of '", packages[i], "' ", co$version, " at ", co$root,
+                 ", but `lib.loc` selects ", want$version, " at ", want$root, ". Use ",
+                 "replace = TRUE to switch the collection to it, or a different `id` to ",
+                 "keep both. Nothing was changed.", class = "projectData_installation_conflict")
+      }
+      check_installation_unchanged(co)
+      pd_abort("Collection '", id[i], "' is already ", if (isTRUE(co$attached)) "attached" else "registered",
+               " from this installation. Omit `lib.loc` to reuse it, or use replace = TRUE.")
+    }
     check_installation_unchanged(co)
   }
-  if (any(!existing)) {
-    cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
-                            if (is.null(suffix)) NULL else suffix[!existing],
-                            include, replace | unattached[!existing])
-  }
+  replacing <- id[registered & !existing]
+  tryCatch({
+    if (any(!existing)) {
+      cand <- add_collections(cand, packages[!existing], lib.loc, id[!existing],
+                              if (is.null(suffix)) NULL else suffix[!existing],
+                              include, replace | unattached[!existing])
+    }
+    commit_attachment(cand, id, primary, name, pos, on_mask)
+  }, error = function(e) {
+    if (!length(replacing) || !isTRUE(all(replace))) stop(e)
+    cls <- setdiff(class(e), c("projectData_condition", "simpleError", "error", "condition"))
+    stop(pd_condition(
+      paste0(conditionMessage(e), " The previous registration of ", quote_names(replacing),
+             " and its bindings, preferences and attachment state were kept. Keeping those ",
+             "records does not restore backing files that an installation change has ",
+             "already overwritten; use `lib.loc` to select where to look."),
+      c(cls, "projectData_replace_failed"), "error"))
+  })
+}
+
+# Marks, validates and commits the candidate; the previous state stands unless
+# the whole step succeeds.
+commit_attachment <- function(cand, id, primary, name, pos, on_mask) {
   for (i in id) cand$collections[[i]]$attached <- TRUE
   if (!is.null(primary)) cand$primary <- primary
   f <- cand$facade

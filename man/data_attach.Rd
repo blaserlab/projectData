@@ -34,7 +34,8 @@ package.}
 \item{primary}{\code{NULL} or the id of the collection whose objects keep bare
 names when contested. Equivalent to calling \code{\link[=data_primary]{data_primary()}}.}
 
-\item{replace}{Replace collections that are already attached.}
+\item{replace}{Replace the registration of collections that already exist
+(see "Installation lifecycle and \code{replace}").}
 
 \item{name}{Search-path name of the environment.}
 
@@ -64,20 +65,54 @@ never need to register anything yourself.
 
 An attached package is a \emph{collection} with an id (by default the package
 name). Use \code{id} to attach the same package twice, for example two installed
-versions from different libraries. Attaching an id that is already attached
-from the same package does nothing, unless the installed package has changed
-since, which is an error asking for \code{replace = TRUE}. Registration arguments
-(\code{lib.loc}, \code{suffix}, \code{include}) for an id that is already attached also need
-\code{replace = TRUE}.
+versions from different libraries: distinct ids are the only way to keep two
+installations side by side.
+}
+\section{Installation lifecycle and \code{replace}}{
 
 The installed copy is resolved once, here, from \code{lib.loc} (default
-\code{\link[=.libPaths]{.libPaths()}}); later changes to \code{\link[=.libPaths]{.libPaths()}} cannot redirect a pending
-read. If the installed package is replaced in place before an object is
-opened, opening fails informatively and you re-attach with \code{replace = TRUE}.
-Objects you already hold are not closed, but replacing or removing an
-installation is not covered by any guarantee for them: see the "Lifetime of
-opened objects" section of \code{\link[=data_detach]{data_detach()}}.
+\code{\link[=.libPaths]{.libPaths()}}), and that installation (its root, version and an identity made
+from the stat() of its metadata files, never from a loaded namespace) is
+recorded with the collection. Later changes to \code{\link[=.libPaths]{.libPaths()}} cannot redirect
+it.
+
+Attaching an id that is already attached or registered from the same package,
+without \code{lib.loc}, \code{suffix}, \code{include} or \code{replace}, does nothing \strong{if the
+recorded installation is unchanged}. The recorded installation is compared with the files on disk each time: a newer
+version, a reinstall of the same version, a removal, or a library link that
+now leads elsewhere all count as changed. A changed installation is an error
+(class \code{projectData_stale_installation}) before anything is touched. It names
+the collection, the path, the registered and current versions and the command
+that switches. The same check runs before any resource is opened, so a
+pending read never reads a replaced installation. A \code{lib.loc} that selects a
+different installation for an existing id is likewise an error
+(\code{projectData_installation_conflict}) unless \code{replace = TRUE}; any \code{lib.loc},
+\code{suffix} or \code{include} for an existing id needs \code{replace = TRUE}.
+
+\code{replace = TRUE} re-registers the collection under the \strong{same id}. The new
+registration and the resulting name resolution are built and validated first;
+only then are they committed, so there is never a second collection or a
+second search-path entry. The old resource records and their caches are always
+discarded when the installation changed, even if resource names and
+descriptors are identical, so every later access, attached or explicit, reads
+from the new installation. Omitted arguments keep the current collection's
+settings when the same package is replaced: \code{lib.loc} defaults to the library
+the collection was found in (not \code{\link[=.libPaths]{.libPaths()}}), \code{suffix} and \code{include} are
+kept, and so are the primary designation and preferences. Give an argument to
+change it (\code{suffix = NA} removes a suffix). Preferences and the primary must
+remain valid; if they would not, the replacement fails (class
+\code{projectData_replace_failed} added) and the previous registration, bindings,
+preferences and attachment state are kept. Keeping those records does not
+restore backing files that were already overwritten.
+
+Replacement changes projectData's registration and bindings only. Objects you
+already assigned elsewhere are not modified or repaired:
+after \verb{old_cds <- cds_main; data_attach("pkg", replace = TRUE)}, \code{old_cds}
+still holds the old returned object, and it may stop working if the installed
+files it reads from were overwritten. See the "Lifetime of opened objects"
+section of \code{\link[=data_detach]{data_detach()}}.
 }
+
 \section{Name conflicts}{
 
 Name resolution is metadata-only. The bare name of an object that exists in

@@ -117,18 +117,53 @@ resolve_resource_loader <- function(rec) {
   find_loader(rec$loader)
 }
 
-check_installation_unchanged <- function(co) {
-  desc_file <- file.path(co$root, "Meta", "package.rds")
-  now <- if (file.exists(desc_file)) installed_identity(co$root) else NA_character_
-  if (!identical(now, co$identity)) {
-    pd_abort("Installed package '", co$package, "' at ", co$root,
-             " changed since collection '", co$id, "' was registered (registered: ",
-             co$identity, "; now: ", now, "). Nothing was opened. Re-register with ",
-             "data_attach(\"", co$package, "\", id = \"", co$id, "\", replace = TRUE). ",
-             "Replacing an installation does not close objects you already hold, ",
-             "but ones that read from the replaced files may stop working.",
-             class = "projectData_stale_installation")
+# Compares the registered installation with the files on disk now: the recorded
+# root's metadata is re-read (never a namespace or `packageDescription()` cache),
+# and the library entry is checked to still lead to that root. The library search
+# path plays no part, so it cannot redirect an existing collection.
+installation_state <- function(co) {
+  entry <- co$entry %||% co$root
+  if (!file.exists(file.path(co$root, "Meta", "package.rds"))) {
+    return(list(changed = TRUE, what = "was removed", now = NA_character_, where = NA_character_))
   }
+  where <- if (file.exists(entry)) normalizePath(entry, winslash = "/", mustWork = FALSE) else NA_character_
+  if (is.na(where)) {
+    return(list(changed = TRUE, what = "was removed from its library", now = NA_character_,
+                where = NA_character_))
+  }
+  if (!identical(where, co$root)) {
+    return(list(changed = TRUE, what = paste0("now resolves to ", where),
+                now = installed_version_now(where), where = where))
+  }
+  id_now <- tryCatch(installed_identity(co$root), error = function(e) NA_character_)
+  if (!identical(id_now, co$identity)) {
+    return(list(changed = TRUE, what = "was replaced or reinstalled",
+                now = installed_version_now(co$root), where = co$root))
+  }
+  list(changed = FALSE)
+}
+
+replace_command <- function(co) {
+  paste0("data_attach(\"", co$package, "\", id = \"", co$id, "\", lib.loc = \"",
+         dirname(co$entry %||% co$root), "\", replace = TRUE)")
+}
+
+returned_objects_note <- paste0(
+  "Replacing an installation does not close or modify objects you already hold (for ",
+  "example `old <- obj`): they keep the old value, and ones that read from files ",
+  "that were overwritten may stop working.")
+
+check_installation_unchanged <- function(co) {
+  st <- installation_state(co)
+  if (!st$changed) return(invisible())
+  pd_abort("Installed package '", co$package, "' for collection '", co$id, "' at ",
+           co$entry %||% co$root, " ", st$what, " since it was registered (registered ",
+           "version ", co$version, "; version on disk now ",
+           if (is.na(st$now)) "not available" else st$now, "). Nothing was opened ",
+           "and no registration, binding or preference was changed. To switch to the ",
+           "installation on disk, run ", replace_command(co), ". For a second version ",
+           "side by side use a different `id`. ", returned_objects_note,
+           class = "projectData_stale_installation")
 }
 
 # On-disk size of a single source file, from stat() only. Skipped for
