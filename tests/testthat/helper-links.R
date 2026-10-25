@@ -31,15 +31,16 @@ local_link <- function(target, link, env = parent.frame()) {
   ok
 }
 
-# Path spellings that identify `path`: canonical, and on Windows also the 8.3
-# short form (e.g. RUNNER~1 vs runneradmin).
+# Spellings of `path` a diagnostic may legitimately use: as given, canonical
+# (long names), and on Windows the 8.3 short form. The short form is kept as
+# returned (not re-normalized, which would expand it back to the long form).
+# All use "/" and are lower-case, so they compare with a message treated alike.
 path_spellings <- function(path) {
-  forms <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  forms <- c(path, normalizePath(path, winslash = "/", mustWork = FALSE))
   if (.Platform$OS.type == "windows") {
-    forms <- c(forms, tryCatch(normalizePath(utils::shortPathName(path), winslash = "/"),
-                               error = function(e) character()))
+    forms <- c(forms, tryCatch(utils::shortPathName(path), error = function(e) character()))
   }
-  tolower(unique(forms))
+  tolower(unique(gsub("\\", "/", forms, fixed = TRUE)))
 }
 
 # Asserts that `msg` mentions the location `path`, whatever its spelling.

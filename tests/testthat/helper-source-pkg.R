@@ -31,11 +31,18 @@ install_source_pkg <- function(src, lib) {
   invisible(file.path(lib, basename(src)))
 }
 
+# Snapshot of a tree: `f` holds paths relative to `path`, always with "/", in
+# a fixed (C locale) order, so snapshots compare equal across platforms and
+# path spellings.
 tree_files <- function(path) {
-  f <- list.files(path, recursive = TRUE, all.files = TRUE, include.dirs = TRUE, full.names = TRUE)
-  f <- f[order(f)]
-  sums <- ifelse(dir.exists(f), NA_character_, unname(tools::md5sum(f[!dir.exists(f)])[f]))
-  data.frame(f = f, size = file.size(f), sum = unname(sums))
+  rel <- list.files(path, recursive = TRUE, all.files = TRUE, include.dirs = TRUE, no.. = TRUE)
+  rel <- gsub("\\", "/", rel, fixed = TRUE)
+  rel <- rel[order(rel, method = "radix")]
+  full <- file.path(path, rel)
+  is_dir <- dir.exists(full)
+  sums <- rep(NA_character_, length(rel))
+  sums[!is_dir] <- unname(tools::md5sum(full[!is_dir]))
+  data.frame(f = rel, size = file.size(full), sum = sums)
 }
 
 stage_dirs <- function() list.files(tempdir(), "^projectData-stage-")
