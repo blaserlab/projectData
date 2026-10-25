@@ -37,7 +37,22 @@ test_that("a newer version at the same root makes ordinary attachment fail infor
   err <- expect_error(data_attach("pdr2"), class = "projectData_stale_installation")
   msg <- conditionMessage(err)
   expect_match(msg, "collection 'pdr2'", fixed = TRUE)
-  expect_mentions_path(msg, file.path(lib, "pdr2"))
+  # TEMP-DEBUG-BEGIN
+  dbg <- paste(c(
+    "=== MACOS REPLACEMENT DEBUG ===",
+    "ACTUAL MESSAGE:", msg,
+    "EXPECTED PATH:", file.path(lib, "pdr2"),
+    "ACCEPTED PATH SPELLINGS:", paste0("  [", seq_along(path_spellings(file.path(lib, "pdr2"))), "] ", path_spellings(file.path(lib, "pdr2"))),
+    "LIBRARY ROOT:", lib,
+    "INSTALLED PACKAGE LOCATION:", find.package("pdr2", lib.loc = lib),
+    "TMPDIR env:", Sys.getenv("TMPDIR"), "tempdir():", tempdir(),
+    "normalizePath(lib):", normalizePath(lib),
+    "COLLECTIONS entry/root/library:", capture.output(str(projectData:::.state$collections[["pdr2"]][c("entry", "root", "library")])),
+    "=== END DEBUG ==="), collapse = "\n")
+  cat("\n", dbg, "\n", sep = "")
+  message(dbg)
+  expect_mentions_path(msg, file.path(lib, "pdr2"), extra = dbg)
+  # TEMP-DEBUG-END
   expect_match(msg, "registered version 0.1.0", fixed = TRUE)
   expect_match(msg, "on disk now 0.2.0", fixed = TRUE)
   expect_match(msg, "replace = TRUE", fixed = TRUE)

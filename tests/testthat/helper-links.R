@@ -51,11 +51,11 @@ path_spellings <- function(path) {
 }
 
 # Asserts that `msg` mentions the location `path`, whatever its spelling.
-expect_mentions_path <- function(msg, path) {
+expect_mentions_path <- function(msg, path, extra = NULL) { # TEMP-DEBUG
   text <- tolower(gsub("\\", "/", msg, fixed = TRUE))
   text <- paste(text, gsub("(?<=.)/{2,}", "/", text, perl = TRUE))
   testthat::expect_true(any(vapply(path_spellings(path), grepl, NA, x = text, fixed = TRUE)),
-                        info = paste("message does not mention", path))
+                        info = paste(c(paste("message does not mention", path), extra), collapse = "\n"))
 }
 
 test_that("same_path treats spellings of one location as equal and others as different", {
