@@ -1,3 +1,7 @@
+# projectData 0.1.0
+
+* Initial CRAN submission
+
 # projectData 0.0.0.9007 (development version)
 
 ## Changes in this version
