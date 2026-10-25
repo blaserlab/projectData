@@ -216,3 +216,19 @@ test_that("distinct ids keep separate installed versions side by side", {
   expect_error(data_attach("pdr10", id = "v1"), class = "projectData_stale_installation")
   expect_identical(data_get("a", collection = "v2"), "from-b")
 })
+
+test_that("a diagnostic path is the logical, separator-collapsed library entry", {
+  local_clean_session()
+  lib <- fixture_library()
+  # emulate a TMPDIR that ends in a slash
+  messy_lib <- sub("/([^/]+)$", "//\\1", lib)
+  skip_if_not(dir.exists(messy_lib))
+  install_pkg(messy_lib, "pdrsep")
+  data_attach("pdrsep", lib.loc = messy_lib)
+  install_pkg(messy_lib, "pdrsep", "0.2.0", list(a = "new", b = "bee"))
+  err <- expect_error(data_attach("pdrsep"), class = "projectData_stale_installation")
+  msg <- conditionMessage(err)
+  expect_mentions_path(msg, file.path(messy_lib, "pdrsep"))
+  expect_match(msg, "registered version 0.1.0", fixed = TRUE)
+  expect_match(msg, "on disk now 0.2.0", fixed = TRUE)
+})

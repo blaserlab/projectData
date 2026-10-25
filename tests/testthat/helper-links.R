@@ -32,20 +32,28 @@ local_link <- function(target, link, env = parent.frame()) {
 }
 
 # Spellings of `path` a diagnostic may legitimately use: as given, canonical
-# (long names), and on Windows the 8.3 short form. The short form is kept as
-# returned (not re-normalized, which would expand it back to the long form).
-# All use "/" and are lower-case, so they compare with a message treated alike.
+# (symlinks and long names resolved), the logical form with redundant separators
+# collapsed (a TMPDIR ending in "/" gives ".../T//Rtmp..." on macOS, where the
+# physical form also differs: /var -> /private/var), and on Windows the 8.3
+# short form. The short form is kept as returned (not re-normalized, which would
+# expand it back to the long form). All use "/", have no trailing "/", and are
+# lower-case, so they compare with a message treated alike.
 path_spellings <- function(path) {
   forms <- c(path, normalizePath(path, winslash = "/", mustWork = FALSE))
   if (.Platform$OS.type == "windows") {
     forms <- c(forms, tryCatch(utils::shortPathName(path), error = function(e) character()))
   }
-  tolower(unique(gsub("\\", "/", forms, fixed = TRUE)))
+  forms <- gsub("\\", "/", forms, fixed = TRUE)
+  # keep a leading "//" (Windows UNC share) while collapsing the rest
+  collapse <- function(p) sub("(?<=.)/+$", "", sub("^(//?)/*", "\\1", gsub("(?<=.)/{2,}", "/", p, perl = TRUE)), perl = TRUE)
+  forms <- c(forms, collapse(forms))
+  tolower(unique(forms))
 }
 
 # Asserts that `msg` mentions the location `path`, whatever its spelling.
 expect_mentions_path <- function(msg, path) {
   text <- tolower(gsub("\\", "/", msg, fixed = TRUE))
+  text <- paste(text, gsub("(?<=.)/{2,}", "/", text, perl = TRUE))
   testthat::expect_true(any(vapply(path_spellings(path), grepl, NA, x = text, fixed = TRUE)),
                         info = paste("message does not mention", path))
 }
