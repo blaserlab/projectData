@@ -55,11 +55,10 @@ supply the discovery and opening steps for a specialized storage format.
 This division keeps the core package light. The core handles registration,
 resolution, caching, and provenance, and it reads ordinary datasets and
 explicitly described RDS files. Format-specific code lives in separate adapter
-packages that you choose to install. For example, an adapter for Monocle 3
-`cell_data_set` objects backed by BPCells matrices could be distributed as its
-own package, say `projectData.monocle3`, so that projectData does not depend on
-monocle3 or BPCells. No such adapter is part of this package (see the
-[adapter vignette](adapters.html)). Missing or unavailable adapters affect only
+packages that you choose to install. For example, the separate `projectData.monocle3` package restores Monocle 3
+`cell_data_set` objects backed by BPCells matrices, so that projectData does not
+depend on monocle3 or BPCells. See the [adapter vignette](adapters.html) for how
+adapters work. Missing or unavailable adapters affect only
 the resources that need them.
 
 projectData is not a package manager. It never installs or updates data

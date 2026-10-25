@@ -58,9 +58,9 @@ can keep using it.
   `inst/ide-repro/`.
 * Authoring manifests against a package source tree needs a file system that
   can create symbolic links; installed packages and prepared directories do not.
-* Monocle3/BPCells (CDS) support is deferred. It would be a separate adapter
-  package; the core has no dependency on either. The vignette `adapters` shows
-  a working adapter with the small disk-backed example backend.
+* Monocle3/BPCells (CDS) support is provided by the separate
+  `projectData.monocle3` adapter package; the core has no dependency on
+  either. The vignette `adapters` builds a small disk-backed adapter step by step.
 
 ## License
 

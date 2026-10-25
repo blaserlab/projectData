@@ -11,83 +11,250 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-Some data cannot be restored by ordinary deserialization: disk-backed matrices,
-database handles, memory-mapped files. An *adapter* teaches projectData how to
-find and open such a resource. The core package has no dependency on any
-specialized format; adapters ship separately (for example in their own package
-or on GitHub) and are never installed automatically.
+This tutorial shows how to teach projectData to find and open a specialized
+storage format. It builds a small working adapter, `tinydisk`, step by step,
+then covers distribution, manifests, and the behavior you should know about
+before shipping one. You should be comfortable writing R packages. You do not
+need prior experience with projectData, although the
+[main vignette](projectData.html) explains the collection features used here
+in more detail.
 
-## The loader contract (version 1)
+# 1. Why adapters exist
 
-`data_loader()` bundles three functions. Only `open` may read data values.
+Most R data is restored by reading an `.rda` or `.rds` file, and projectData
+does that itself. Some data cannot be restored that way: a matrix stored in
+files and read lazily, a handle to a database, a memory-mapped file. These
+objects are restored with the format's own functions, and often those
+functions come from a large package that most users of projectData do not
+need.
 
-| Step | Signature | Must |
-|---|---|---|
-| discover | `function(root, context)` | list candidate descriptors from files under `root`; do not read data values |
-| validate | `function(descriptor, root, context)` | return `TRUE` or a message; check files exist; do not open data |
-| open | `function(descriptor, paths, context)` | return a **named list** of the objects produced |
+An *adapter* is the piece of code that knows one such format. Three parties
+are involved, each with a distinct job.
 
-A descriptor is a list with `resource`, `loader`, `source` (relative path),
-`objects`, `options`, `title`, `help_topic`, `recorded_class`. `paths` has
-`root`, `source` (resolved absolute path) and `work_dir`. Loader ids are
-namespaced (`"pkg::name"`); `projectData::` is reserved.
+| Component | Responsibility |
+|---|---|
+| **Data package** | Distributes documented datasets, an optional manifest, and any backing files (under `inst/`). |
+| **projectData** | Registers collections, inventories resources, resolves names and conflicts, defers access, records provenance, and caches each opened resource once. |
+| **Adapter** | Understands one storage format: finds its resources, checks that they are intact, and restores them on request. |
 
-### Context and validation lifecycle
+Keeping the adapter separate means the format's dependencies stay out of the
+projectData core. An adapter is a package of its own (or a script) that you
+choose to install; projectData never installs one for you.
 
-`context` is built by one helper for `validate` and `open`, so shared fields
-are identical: `collection`, `package`, `version`, `library`, `root` and
-`resource`. (During discovery `resource` is `NA`; in a standalone
-`data_manifest_validate()` `collection` is `NA`; while authoring against a
-source tree or bare directory some fields are `NA`, see "Roots and layouts"
-below.) The only opening-only
-information is `paths` (resolved `source`, `work_dir`).
+You do **not** need an adapter in these cases:
 
-`validate` runs when a collection is registered, if its loader is already
-registered, and again before **every uncached opening attempt**, against the
-loader selected for that attempt. Collections may therefore be registered
-while an optional loader is missing, and a loader that arrives later (by
-`data_loader_add()` or automatic adapter resolution on first access) is
-validated before it opens anything. A replacement loader is never covered by
-an earlier loader's validation. A rejection marks the resource `failed`
-without calling `open`; fix the problem and call `data_retry()`. Validators
-may inspect metadata and file paths only: do not restore the dataset or read
-backing matrices. Resources already `ready` are cached and not validated again.
+* The data are ordinary R datasets in `data/`. projectData reads them with its
+  built-in `projectData::dataset` loader.
+* The data are a single serialized R object. A manifest entry using the
+  built-in `projectData::rds` loader describes an `.rds` file under `extdata/`
+  without any adapter code.
 
-### Registering an adapter
+Write an adapter when restoring the resource needs format-specific code, or
+when you want projectData to discover resources of a given format
+automatically.
 
-`data_loader_adapter()` is atomic. The declaration is checked before any
-loader is registered: every element must be a well-formed `data_loader()`,
-ids must be unique within the declaration, and no id may collide with the
-registry (unless `replace = TRUE`). If anything fails, the registry is
-unchanged. Checking never calls `discover`, `validate` or `open`.
+# 2. How the adapter architecture works
 
-Rules that make adapters safe to use:
+## Resources and objects
 
-* Installed files are read-only. Need a writable file? Declare
-  `needs_work_dir = TRUE` and use `paths$work_dir`, which is unique per open.
-* Resolve paths from the installation root given in `paths`; never hard-code a
-  library location.
-* Know whether the returned object references the installed files or a working
-  copy, and document it. An object referencing installed files may stop working
-  if the installation is replaced or removed. A working copy gives
-  independence only if every file reference the object needs was restored to the
-  copy, and only while the copy lasts (by default the session temporary
-  directory).
-* Keep backing files available for the lifetime of the returned object.
-* Use the format's native save/load API in `open`. Do not serialize live
-  connections or external pointers and expect them to restore.
-* Set `storage = "disk-backed"` if the returned object reads from files lazily,
-  so the catalog and first-access message do not suggest the data are in memory.
-* Do not assume every file under `extdata` is a public data object: discover
-  by an explicit format convention, or let the data package author list
-  resources in a manifest.
+A *resource* is one loadable unit, such as a directory or file. Opening a
+resource produces one or more named R *objects*. Resource names, file names,
+and object names are separate concepts and need not match. Catalog and
+conflict resolution work on the recorded mapping from resources to objects,
+and an unknown mapping stays unknown until it is inspected.
 
-## A complete tiny example
+## The loader
 
-The example backend `inst/examples/tinydisk.R` stores a numeric matrix in a
-binary file. An opened object holds only a path and reads values on `[`.
+An adapter contributes one or more *loaders*, built with `data_loader()`. Each
+loader has a namespaced identifier such as `"tinydisk::tinymat"` and up to
+three callbacks:
 
-```{r tinydisk}
+| Operation | Callback | Receives | Returns |
+|---|---|---|---|
+| Discovery | `discover(root, context)` | the package root and a context list | a list of descriptors, or `NULL` |
+| Validation | `validate(descriptor, root, context)` | one descriptor | `TRUE`, or a character message that rejects it |
+| Opening | `open(descriptor, paths, context)` | one descriptor, resolved `paths`, and context | a **named list** of the objects produced |
+
+Only `open` may read data. Discovery and validation work from file names and
+small metadata and must not restore the dataset. This is what lets projectData
+build a catalog of a large collection without touching it.
+
+## When each operation runs
+
+```
+ install data package
+        |
+        v
+ register collection ---- discovery (only for loaders that provide it,
+        |                  and only if the resource is not in a manifest)
+        |                 validation (if the loader is already registered)
+        v
+ catalog / data_query()   metadata only, nothing opened
+        |
+        v
+ first access: data_get(), or a bare name in the attached environment
+        |
+        +-- loader missing? resolve it from the manifest's AdapterPackage
+        +-- validation again, against the loader about to open
+        +-- open()  -> objects cached under the resource
+        v
+ later access: cached; no further validation or opening
+```
+
+*Discovery* answers "what resources does this package contain?" It returns
+descriptors, which are plain lists with these fields:
+
+| Field | Meaning |
+|---|---|
+| `resource` | Resource name, unique within the collection. |
+| `source` | Path relative to the installed package root (for example `extdata/counts.tinymat`). |
+| `objects` | Names of the objects the resource is expected to produce. |
+| `loader` | The loader id (set for you by discovery; required in manifests). |
+| `options` | A named list of strings the loader may interpret. |
+| `title`, `help_topic`, `recorded_class` | Optional, recorded metadata. |
+| `adapter` | Optional `list(package =, export =)` saying where to find the loader. |
+
+*Validation* answers "is this descriptor well formed, and are the files it
+needs present?" It runs when a collection is registered, if the loader is
+already registered, and again before **every uncached opening attempt**
+against the loader selected for that attempt. This means a collection can be
+registered while an optional adapter is missing, and an adapter that arrives
+later is still validated before it opens anything. A rejection marks the
+resource `failed` without calling `open`; fix the problem and call
+`data_retry()`.
+
+*Opening* restores the resource when someone first asks for an object from it.
+The result is cached, so later access does not repeat validation or opening.
+
+## Manifests and discovery are alternatives
+
+There are two ways a resource becomes known:
+
+* **Discovery.** The adapter scans the package and reports what it finds, using
+  a file-naming convention you define.
+* **A manifest.** The data package author lists the resource in
+  `inst/projectData/manifest.dcf` (section 5). The manifest describes the
+  resource completely, so no adapter needs to discover it, and a loader
+  without a `discover` callback works fine.
+
+They can be combined. If both name the same resource, the manifest entry wins.
+Details are in the advanced section.
+
+# 3. Building a minimal adapter: tinydisk
+
+The example adapter lives in `inst/examples/tinydisk.R`. It is used by the
+package tests and is not part of the projectData API, so the vignette sources
+it. The sections below explain how it is built.
+
+## The format
+
+A tinymat is a directory named `<name>.tinymat/` with two files: `dim.txt`
+(`"nrow ncol"`) and `values.bin` (column-major doubles). An opened tinymat is
+a small object holding the directory path and dimensions. It reads values
+from disk only when you subset it with `[`. That makes it a miniature version
+of a disk-backed matrix.
+
+## The loader declaration
+
+```r
+projectData::data_loader(
+  "tinydisk::tinymat",
+  storage = "disk-backed",
+  needs_work_dir = TRUE,
+  discover = function(root, context) { ... },
+  validate = function(descriptor, root, context) { ... },
+  open = function(descriptor, paths, context) { ... }
+)
+```
+
+The id has the form `package::name`, and the `projectData::` prefix is
+reserved for built-in loaders. Using your package name as the prefix keeps ids
+stable and avoids collisions with other adapters.
+
+`storage = "disk-backed"` tells projectData that the returned object reads
+from files lazily. The catalog and the first-access message then avoid
+suggesting that data are in memory. `needs_work_dir = TRUE` asks for a
+writable directory to be provided at opening, explained below.
+
+## Discovery
+
+```r
+discover = function(root, context) {
+  dirs <- list.files(file.path(root, "extdata"), pattern = "\\.tinymat$")
+  lapply(sub("\\.tinymat$", "", dirs), function(nm) {
+    list(resource = nm, source = paste0("extdata/", nm, ".tinymat"), objects = nm)
+  })
+}
+```
+
+`root` is the installed package root, where `data/` and the contents of
+`inst/` sit side by side. The callback uses an explicit convention (the
+`.tinymat` suffix), and it only lists names. It does not read `dim.txt`.
+projectData does not assume that every file under `extdata/` is a public data
+object, so a convention like this is how an adapter avoids claiming unrelated
+files. Here the object is named after the resource, but that is a choice of
+this adapter, not a requirement.
+
+## Validation
+
+```r
+validate = function(descriptor, root, context) {
+  src <- file.path(root, descriptor$source)
+  ok <- file.exists(file.path(src, "dim.txt")) && file.exists(file.path(src, "values.bin"))
+  if (ok) TRUE else "tinymat directory is missing dim.txt or values.bin"
+}
+```
+
+The validator checks that the files the format requires exist, and returns
+either `TRUE` or a message explaining why not. An error raised inside
+`validate` also rejects the descriptor. It never opens the data, so it is
+cheap enough to run before every opening attempt, and it turns a damaged
+installation into a clear message instead of a failure deep inside the
+format's reader.
+
+## Opening
+
+```r
+open = function(descriptor, paths, context) {
+  src <- paths$source
+  if (identical(descriptor$options$work_copy, "true")) {
+    dest <- file.path(paths$work_dir, basename(src))
+    file.copy(src, paths$work_dir, recursive = TRUE)
+    src <- dest
+  }
+  stats::setNames(list(tinymat_open(src)), descriptor$objects)
+}
+```
+
+projectData resolves the paths for you, so `open` never builds a library
+location itself:
+
+* `paths$root` is the installed package root, and `paths$source` is the
+  descriptor's `source` resolved to an absolute path (`NA` if there is none).
+* `paths$work_dir` is a directory that is unique to this opening, provided
+  only when the loader declared `needs_work_dir = TRUE` (otherwise `NULL`).
+  Installed files are read-only, so a loader that must write or copy anything
+  does it here.
+* `context` carries `collection`, `package`, `version`, `library`, `root`, and
+  `resource`, which is useful for messages and diagnostics.
+* `descriptor$options` carries the strings the data package author supplied.
+  The example uses `work_copy = "true"` to demonstrate a private copy.
+
+`open` must return a **named** list, with one element for each object the
+resource produces, so projectData can cache them together. Here, `tinymat_open()`
+reads only `dim.txt` and records the path. It returns a restored R object, but
+the values stay on disk until the user subsets them. Restoring an object is not
+the same as materializing its data; for a disk-backed format the first is cheap
+and the second is not. The catalog state `ready` therefore means only that the
+loader returned.
+
+# 4. Registering and using an adapter
+
+The next chunks walk through the whole workflow. First, prepare a data
+resource: the fixture helper installs a small package into a temporary library
+(not your user library) containing one tinymat directory under `extdata/`.
+
+```{r prepare}
 library(projectData)
 source(system.file("examples", "tinydisk.R", package = "projectData"))
 source(system.file("examples", "fixtures.R", package = "projectData"))
@@ -97,26 +264,116 @@ fixture_package(lib, "diskData", "1.0.0", lazy = FALSE, datasets = list(),
   files = list("extdata/counts.tinymat" = function(path) {
     tinymat_write(matrix(as.double(1:12), 3, 4), path)
   }))
+```
 
-data_loader_add(tinydisk_loader())     # explicit registration; required for discovery
+Next, register the adapter. `data_loader_add()` registers one loader
+explicitly, which is required here because the adapter is not in a package
+that projectData could find. Registration stores the declaration only: no
+callback runs.
+
+```{r register-loader}
+data_loader_add(tinydisk_loader())
+data_loaders()
+```
+
+Querying the package shows its catalog without attaching anything. The `tinymat` was found by the adapter's discovery callback and its
+object is still unopened.
+
+```{r query}
 data_query("diskData", lib.loc = lib)[, c("object", "loader", "storage", "state")]
-data_attach("diskData", lib.loc = lib)
+```
 
+Attaching registers the collection (inventory only, still no `open`) and binds
+its names in an environment on the search path. The suffix below adds a second
+name for each object, to show that aliases refer to the same resource.
+
+```{r attach}
+data_attach("diskData", lib.loc = lib, suffix = ".disk")
+data_catalog()[, c("exposed_name", "object", "resource", "state")]
+```
+
+Both names point to one resource record, so the first access does the only
+opening. This is when `validate` runs and then `open`:
+
+```{r access}
 counts <- data_get("counts")
 dim(counts)
 counts[2, 3]
-data_catalog()[, c("object", "storage", "state")]
-data_detach()
 ```
 
-`ready` means the loader returned. For a `disk-backed` loader it does not mean
-the matrix is in memory.
+`dim()` answered from the recorded dimensions, and `counts[2, 3]` read one
+column from disk. Accessing the object by a different name, or qualifying the
+collection, returns the same cached object without another opening:
 
-## Manifests and adapter packages
+```{r cache}
+identical(counts, data_get("counts.disk"))
+identical(counts, data_get("counts", collection = "diskData"))
+data_catalog()[, c("exposed_name", "state")]
+```
 
-Data package authors can describe resources that are not discoverable with an
-optional file `inst/projectData/manifest.dcf`. It holds data only: relative
-paths and loader references, never code.
+`data_get()` also works without attaching, which avoids adding names to the
+search path (`data_get("counts", package = "diskData", lib.loc = lib)`). It
+shares the same resource records, so there is still exactly one opening per
+resource whichever route comes first.
+
+Detaching removes the bindings and forgets the registration with its cached
+references. It does not delete backing files, so `counts` stays usable:
+
+```{r detach}
+data_detach()
+counts[1, 1]
+```
+
+Summary of what happens when:
+
+| Step | Discovery | Validation | Opening |
+|---|---|---|---|
+| `data_loader_add()` | no | no | no |
+| `data_query()` / `data_attach()` / `data_catalog()` | yes | if the loader is registered | no |
+| First access to an object | no | yes | yes |
+| Later access | no | no | no |
+
+# 5. Distributing adapters and declaring resources
+
+## An adapter package is not a data package
+
+An *adapter package* contains code for one format and has no data. A *data
+package* contains data and can say which adapter it needs, but contains no
+loader code. Many data packages can use one adapter, and the adapter can
+change without rebuilding them as long as the file format stays compatible.
+
+## Packaging the adapter
+
+An adapter package exports a function that returns a `data_loader()`, or a
+list of them. By default projectData looks for an export named
+`projectData_loaders`:
+
+```r
+# in the adapter package, e.g. tinydiskAdapter
+#' @export
+projectData_loaders <- function() tinydisk_loader()
+```
+
+Use a stable id with your package name as prefix (`"tinydisk::tinymat"`),
+because data packages record it. Put optional heavy dependencies in `Suggests`
+or `Imports` of the adapter, not of projectData or of the data packages.
+
+Users register an adapter in one call:
+
+```r
+data_loader_adapter("tinydiskAdapter")
+```
+
+`data_loader_adapter()` loads the namespace without attaching it, calls the
+export with no arguments, checks the whole declaration, and registers
+everything or nothing. It never calls `discover`, `validate` or `open`. It
+fails with a `projectData_loader_unavailable` error if the package or export is
+missing.
+
+## Declaring resources in a manifest
+
+A data package author can describe resources in `inst/projectData/manifest.dcf`.
+A manifest holds data only: relative paths and loader references, never code.
 
 ```
 ManifestVersion: 1
@@ -130,72 +387,23 @@ AdapterPackage: tinydiskAdapter
 AdapterExport: projectData_loaders
 ```
 
-`AdapterPackage`/`AdapterExport` name an export of the adapter package that
-returns a `data_loader()` (or a list of them). If the loader is not registered
-when the object is first accessed, projectData loads that namespace (it does
-not attach it) and registers the loader. If the package is not installed,
-only objects that need it fail, with an actionable message. Use
-`data_loader_adapter("tinydiskAdapter")` to register an adapter explicitly.
-Validate a manifest with `data_manifest_validate()`.
+`Resource` and `Loader` are required. `Objects` is a comma-separated list of
+names the resource produces, `Options` is `key=value` pairs separated by `;`,
+and `Title`, `HelpTopic`, and `RecordedClass` are optional recorded metadata.
+`AdapterPackage` (and optionally `AdapterExport`, default
+`projectData_loaders`) tell projectData where to find the loader. If the loader
+is not registered when the object is first accessed, projectData loads that
+namespace (without attaching it) and registers the loader.
 
-### Authoring a manifest
+The same fields are described by the `descriptor` lists above, so a manifest
+is a serialization of descriptors. Because it holds no code, projectData can
+validate it without running anything.
 
-Writing DCF by hand is error-prone, so projectData can draft and write one.
-`data_manifest_draft()` asks the **already registered** adapters what they would
-claim under a root. It uses discovery only: nothing is opened and nothing is
-written. `data_manifest_write()` validates the descriptors, writes them, and
-reads the text back to check that it reproduces them exactly.
-
-#### Roots and layouts
-
-`Source` paths in a manifest, and the paths your `discover()` and `validate()`
-callbacks work with, are relative to the **installed** package root, where
-`data/` and the contents of `inst/` sit side by side: `data/example.rda`,
-`extdata/counts.tinymat`. A source tree is laid out differently
-(`inst/extdata/...`), so authoring accepts three kinds of `root`:
-
-* a **package source tree**, a directory with a `DESCRIPTION`. This is the
-  recommended entry point. projectData builds a temporary view with the
-  installed shape (links to `data/` and each top-level entry of `inst/`),
-  passes it to your callbacks, and removes it afterwards; your `data/` and
-  `inst/` are never modified, the package is not installed, and no dataset is
-  loaded, copied or script run. Standard datasets are recognized by file name,
-  so their object names stay unknown. This requires a file system and R session
-  that can create symbolic links. If a link cannot be created, authoring fails
-  with an error naming the entry and does not copy any data, since that could
-  duplicate a very large collection; existing manifests are left unchanged. The
-  view is removed as it was made (its links, as links, then its directory),
-  without following or deleting what the links point to; if something cannot be
-  removed, a `projectData_cleanup_warning` names it and any authoring error is
-  still reported as such.
-  Use an environment that supports links, or one of the next two kinds of root.
-  In a verified source tree (a `DESCRIPTION`, no installation artifacts such as
-  `Meta/`), a top-level entry of `inst/` may itself be a symbolic link, e.g.
-  `inst/extdata -> /shared/data/project`. A `Source` such as
-  `extdata/example_resource` is then accepted if the final path exists; it is
-  always stored as that package-relative path, never the physical target. This
-  relaxation does not apply to `data/`, installed packages or standalone
-  directories, which keep strict containment, nor does it make the package
-  portable: check that `R CMD build` places regular files, not links, in your
-  tarball.
-* an **installed package** directory, used as is;
-* a **standalone resource directory**, used as is. This is the earlier
-  convention of passing `inst/`; it still works for `extdata/` resources but
-  cannot see `data/`.
-
-The `context` your callbacks receive says which one it is:
-
-| root | `package`, `version` | `library` | `root` |
-|---|---|---|---|
-| installed package | installed metadata | the library holding it | the package directory |
-| package source tree | from `DESCRIPTION` | `NA` (not installed) | temporary installed-shaped view |
-| standalone directory | `NA` (never guessed from the name) | `NA` | the directory |
-
-`collection` is `NA` while authoring. A callback that stores the `root` it was
-given during authoring must not rely on it afterwards, because the view of a
-source tree is temporary.
-
-#### A complete source-package example
+You can write the file by hand, but projectData can also draft and write it.
+`data_manifest_draft()` asks the **registered** adapters what they would claim
+under a root, using discovery only. `data_manifest_write()` validates and
+writes the descriptors, then reads the text back to confirm it reproduces
+them. `data_manifest_validate()` checks an existing file.
 
 ```{r authoring-source}
 pkg <- file.path(tempfile("src-"), "my.datapkg")
@@ -212,12 +420,9 @@ drafts <- data_manifest_draft(pkg)
 vapply(drafts, function(d) d$source, "")
 ```
 
-The `.rda` dataset is a standard dataset and needs no manifest entry; the
-tinymat is found by the adapter under `extdata/`. A draft does not know which
-package supplies the loader, so say so if projectData should load the adapter on
-first access. Edit the descriptors as ordinary lists, then write them to the
-conventional location. For `<source>/inst/projectData/manifest.dcf` the default
-`root` is the package source, so both `data/` and `extdata/` paths resolve:
+The `.rda` dataset is a standard dataset and needs no manifest entry. The
+adapter found the tinymat. A draft does not know which package supplies the
+loader, so add that, then write it to the conventional location:
 
 ```{r authoring-write}
 drafts <- lapply(drafts, function(d) {
@@ -231,14 +436,11 @@ data_manifest_write(drafts, manifest)
 writeLines(readLines(manifest))
 ```
 
-The result records whether the loader's own `validate()` ran. Here it did,
-because the loader was registered. Without it, the descriptor is checked for
-structure only and a `projectData_validation_skipped` message says so; register
-the adapter and run `data_manifest_validate()` before shipping.
-
-A manifest holds less than a descriptor can, and the writer refuses rather than
-change anything silently, for example a per-object title that differs between
-objects, an option value containing `;`, or a `Source` that leaves the root:
+The result records whether the loader's own `validate()` ran. Without a
+registered loader, the descriptor is checked for structure only and a
+`projectData_validation_skipped` message says so. Register the adapter and run
+`data_manifest_validate()` before shipping. A manifest holds less than a
+descriptor can, so the writer refuses rather than change anything silently:
 
 ```{r authoring-errors, error = TRUE}
 data_manifest_write(list(resource = "counts", loader = "tinydisk::tinymat",
@@ -246,114 +448,216 @@ data_manifest_write(list(resource = "counts", loader = "tinydisk::tinymat",
                     file.path(pkg, "inst", "projectData", "other.dcf"))
 ```
 
-The writer also refuses to overwrite a file unless `overwrite = TRUE`, and to
-write inside an installed package. If several adapters claim one resource, or
-an adapter claims a standard `data/` dataset, `data_manifest_draft()` leaves it
-out and warns (the `conflicts` attribute lists them); name the winning loader
-with `loaders =` to include it, which writes, for example,
-`Source: data/example.rda` with the specialized loader. Written paths are
-always installed-relative: never absolute and never prefixed with `inst/`.
+## When the adapter is not installed
 
-### Precedence
+Data packages can use an adapter without making it a hard dependency. If the
+adapter named by a manifest is not installed, only the resources that need it
+are affected. The next example installs a package with an ordinary dataset and
+a tinymat whose manifest names an adapter that does not exist. The loader is
+removed first so projectData has to resolve it from the manifest.
 
-Discovery uses metadata only and never opens a resource. For each resource
-id, in this order:
-
-1. A manifest entry replaces every other candidate for that resource, so
-   exactly one descriptor remains. A manifest can therefore hand a standard
-   dataset to a specialized loader, or choose between competing adapters.
-   Declaring a resource twice in one manifest is an error, even if the
-   records agree.
-2. Resources in the standard package data inventory (`.rda` and script
-   datasets in `data/`) belong to the built-in reader. An adapter claim on
-   one is ignored, with a `projectData_ignored_claim` warning naming the
-   claimant, unless a manifest entry says otherwise. Adapters that routinely
-   scan `extdata` can have this reported as a message or silenced with
-   `data_config(ignored_claims = "message")` or `"silent"`. This is by resource
-   identity, not file type: an adapter may still discover a directory
-   resource that contains `.rda` files internally.
-3. Otherwise, several adapters claiming one resource id is ambiguous and
-   fails with `projectData_ambiguous_discovery`, naming the claimants. The
-   outcome does not depend on the order in which loaders were registered.
-
-Distinct resources that expose the same object name are a separate error
-(`projectData_duplicate_object`); a manifest does not merge them. The same
-rule is applied again to the complete proposed mapping of `data_inspect()`, so
-inspection cannot introduce a duplicate that an unknown mapping hid at
-registration. Identical names in separate collections remain supported.
-
-## Registration and attachment (developer notes)
-
-Users see one step, `data_attach()`, and one explicit accessor,
-`data_get(package = )`. Internally these are two separate operations on one
-registry:
-
-* **Registration** inventories an installed package and stores a collection
-  record: resolved installation root, version and identity, the resource and
-  object tables, and one resource record per loadable unit. It is metadata only
-  and is keyed by collection id (default: the package name), so a collection
-  exists at most once.
-* **Attachment** is a flag on the record (`attached`). Only attached collections
-  are bound in the `projectData:data` environment and take part in bare-name
-  resolution (primary, preferences, suffix aliases, ambiguity). A registered but
-  unattached collection is reachable only by `data_get(collection =)` or
-  `data_get(package =)`, and is shown in the catalog with binding `unattached`.
-
-Both entry points register automatically, so there is no user-facing
-registration function. `data_get(package = )` reuses an existing registration of
-that package (attached or not) and checks `lib.loc` against its recorded
-installation rather than re-resolving it, so a second installed copy is never
-picked silently. `data_attach()` reuses an unattached registration as it is;
-when new registration arguments are given for one (a suffix, `include`,
-`lib.loc`), it is rebuilt and the resource records of an identical installation
-are carried over, so nothing already opened is read twice. Attached ids still
-need `replace = TRUE`.
-
-Both paths use the same resource records, so there is exactly one load per
-resource whichever access happens first. `data_get()` registers without
-rebinding the facade. `data_detach()` is the single cleanup operation: it removes
-bindings and forgets the registration with its cached references, whether or not
-the collection was attached. Backing files are never deleted by it, so objects
-you hold can keep reading them after detachment. This says nothing about
-replacing or removing the installed package, which can break objects that
-reference installed files.
-
-## Deferred: a monocle3/BPCells (CDS) adapter
-
-Support for monocle3 CDS objects with BPCells matrices is **deferred**. There is
-no adapter for it in projectData, and nothing below has been run as part of
-this package: monocle3 and BPCells are not dependencies, and the check that
-used them lives in the development repository (`dev/integration/`), outside the
-package tests and the source tarball. The tiny disk-backed backend above is the
-working, tested adapter example.
-
-What earlier exploratory work with a test-local loader found, for whoever builds
-the adapter: monocle3's `load_monocle_objects()` copies the BPCells matrix into
-a new directory under `tempdir()`, so a restored CDS references a working copy
-and not the installed files, and monocle3 had to be attached while it ran. Those
-observations depend on the installed monocle3 and BPCells versions and must be
-checked again. The outline below is an untested sketch of the contract's shape,
-not code to copy.
-
-```r
-# Hypothetical adapter package (not part of projectData); untested.
-cds_loader <- function() {
-  projectData::data_loader(
-    "myCdsAdapter::cds",
-    storage = "disk-backed",
-    discover = function(root, context) {
-      # return descriptors from an explicit directory convention; load nothing
-    },
-    validate = function(descriptor, root, context) {
-      file.exists(file.path(root, descriptor$source))
-    },
-    open = function(descriptor, paths, context) {
-      # call the format's own restore function on paths$source
-    }
-  )
-}
-projectData_loaders <- function() cds_loader()
+```{r missing-adapter}
+data_loader_remove("tinydisk::tinymat")
+fixture_package(lib, "mixedData", "1.0.0", lazy = FALSE,
+  datasets = list(plain = list(x = 1:3)),
+  files = list("extdata/m.tinymat" = function(path) {
+    tinymat_write(matrix(1, 2, 2), path)
+  }),
+  manifest = c("ManifestVersion: 1", "",
+               "Resource: m", "Loader: tinydisk::tinymat",
+               "Source: extdata/m.tinymat", "Objects: m",
+               "AdapterPackage: noSuchAdapter"))
+data_attach("mixedData", lib.loc = lib)
+data_get("x")
 ```
 
-A user would then keep bare names by designating the CDS data package as
-`primary`, and reach supplementary collections through `suffix` aliases.
+```{r missing-adapter-error, error = TRUE}
+data_get("m")
+```
+
+```{r missing-adapter-catalog}
+data_catalog()[, c("exposed_name", "origin", "state")]
+data_detach()
+```
+
+The ordinary dataset opened normally and the catalog marks the other resource
+`unavailable-loader`. Installing the adapter and retrying fixes it without
+re-registering the collection.
+
+# 6. Disk-backed resources and lifecycle considerations
+
+`storage = "disk-backed"` is a statement about the *returned object*: it keeps
+references to files and reads from them lazily. projectData reports a resource
+as `ready` once `open` returns, and accurately says "opened, not necessarily
+loaded into memory." Whether the complete matrix is ever in memory depends on
+the format and on what the user does next.
+
+Things to decide and document in your adapter:
+
+* **Where the files live.** An object that references installed files may stop
+  working if the installed package is replaced or removed. A working copy
+  (`needs_work_dir = TRUE` plus copying into `paths$work_dir`) is independent of
+  the installation only if every file reference the object needs was restored
+  to the copy, and only while the copy lasts. By default `work_dir` is under
+  the session temporary directory.
+* **Lifetime.** Backing files must stay available for as long as the returned
+  object. `data_detach()` forgets the registration and cached references but
+  never deletes backing files, so objects you already hold keep working. That
+  does not protect against the installation itself changing.
+* **Read-only installs.** Never write into the installed package. Use
+  `paths$work_dir`, which is unique per opening.
+* **Serialization.** Use the format's own save and restore API in `open`. Do
+  not store live connections or external pointers and expect them to survive
+  serialization.
+
+# 7. Advanced behavior and troubleshooting
+
+## Resource identity and caching
+
+Each resource has one record per collection. Aliases (suffix names), the
+unqualified name, and `data_get(collection = )` all point to that record, so a
+successful opening happens once and is shared. Reentrant opening of a resource
+that is already being opened is rejected rather than started twice. If
+opening fails, the resource is marked `failed`, nothing is cached, and
+`data_retry()` allows another attempt. Resources already `ready` are never
+validated or opened again. Replacing a loader with `data_loader_add(replace =
+TRUE)` affects only resources opened afterwards, and removing one with
+`data_loader_remove()` marks unopened resources `unavailable-loader` and leaves
+ready objects alone.
+
+## Discovery precedence
+
+Discovery uses metadata only. For each resource name, in this order:
+
+1. A manifest entry replaces every other candidate for that resource. A
+   manifest can therefore hand a standard dataset to a specialized loader, or
+   choose between competing adapters. Declaring one resource twice in a
+   manifest is an error, even if the records agree.
+2. A resource in the standard package data inventory (`.rda` and script
+   datasets in `data/`) belongs to the built-in reader. An adapter claim on one
+   is ignored with a `projectData_ignored_claim` warning naming the claimant,
+   unless a manifest says otherwise. Adapters that routinely scan `extdata/`
+   can make this a message or silent with
+   `data_config(ignored_claims = "message")` or `"silent"`. The rule is about
+   resource identity rather than file type: an adapter can still claim a
+   directory resource that contains `.rda` files internally.
+3. Otherwise, several adapters claiming one resource is ambiguous and fails
+   with `projectData_ambiguous_discovery`, naming the claimants. The outcome
+   does not depend on the order in which the loaders were registered.
+
+Two distinct resources that expose the same object name are a separate error
+(`projectData_duplicate_object`), and a manifest does not merge them. The
+check is repeated on the full proposed mapping in `data_inspect()`. Identical
+names in separate collections are supported.
+
+## Registration-time and first-access checks
+
+At registration, validation runs only for loaders that are already registered.
+Registration therefore succeeds when an optional adapter is missing. At first
+access, validation runs again, against whichever loader is selected to open.
+A replacement loader is never covered by an earlier loader's validation.
+Validators should inspect paths and small metadata only.
+
+## Roots, layouts, and relative paths
+
+`Source` paths in a manifest, and the paths your `discover()` and `validate()`
+callbacks work with, are relative to the **installed** package root, where
+`data/` and the contents of `inst/` sit side by side (`data/example.rda`,
+`extdata/counts.tinymat`). A source tree is laid out differently
+(`inst/extdata/...`), so authoring accepts three kinds of `root`:
+
+* a **package source tree** (a directory with a `DESCRIPTION`), the
+  recommended entry point. projectData builds a temporary view of the installed
+  shape from links to `data/` and each top-level entry of `inst/`, passes it to
+  your callbacks, and removes it afterwards. Your files are not modified, the
+  package is not installed, and no dataset is loaded, copied, or run. Standard
+  datasets are recognized by file name, so their object names stay unknown.
+* an **installed package** directory, used as is.
+* a **standalone resource directory**, used as is. This is the earlier
+  convention of passing `inst/`. It works for `extdata/` resources but cannot
+  see `data/`.
+
+The `context` your callbacks receive describes which one applies:
+
+| root | `package`, `version` | `library` | `root` |
+|---|---|---|---|
+| installed package | installed metadata | the library holding it | the package directory |
+| package source tree | from `DESCRIPTION` | `NA` (not installed) | temporary installed-shaped view |
+| standalone directory | `NA` (never guessed from the name) | `NA` | the directory |
+
+`context$collection` is `NA` while authoring and in a standalone
+`data_manifest_validate()`, and `context$resource` is `NA` during discovery. A
+callback that stores the `root` it received during authoring must not rely on
+it afterwards, because the source-tree view is temporary.
+
+## Symlinks and filesystem limits
+
+Authoring against a source tree needs a file system and R session that can
+create symbolic links. If a link cannot be created, authoring fails with an
+error that names the entry. It does not fall back to copying, because that
+could duplicate a very large collection, and existing manifests are left
+unchanged. The temporary view is removed as it was made (links as links)
+without following or deleting their targets. If something cannot be removed a
+`projectData_cleanup_warning` names it.
+
+In a verified source tree, a top-level entry of `inst/` may itself be a
+symbolic link, for example `inst/extdata -> /shared/data/project`. A source
+such as `extdata/example_resource` is accepted if the final path exists, and is
+always written as the package-relative path, never the physical target. This
+does not apply to `data/`, installed packages, or standalone directories,
+which keep strict containment, and it does not make the package portable.
+Check that `R CMD build` places regular files, not links, in the tarball.
+
+## Optional dependencies and failures
+
+* Heavy dependencies belong in the adapter, loaded inside `open` with their
+  namespace (`requireNamespace()` or `pkg::`), not attached. A missing
+  dependency should produce a clear error from `open`, and then only that
+  resource fails.
+* `validate` should not need those dependencies. If a check needs them, return
+  `TRUE` and let `open` report the problem.
+* An unavailable adapter package gives a `projectData_loader_unavailable` error
+  for the resources that need it; unrelated resources are unaffected.
+* `data_retry()` clears a failed state for another attempt. `data_inspect()`
+  inspects a resource on request to learn its true object names.
+
+## Safety checklist
+
+* Do not read data in `discover` or `validate`.
+* Resolve locations from `paths`; never hard-code a library location.
+* Declare `storage = "disk-backed"` when objects read lazily from files.
+* Know whether the object references installed files or a working copy, and
+  document which.
+* Discover by an explicit format convention, or let manifests list resources.
+
+# 8. A real-world example: projectData.monocle3
+
+`projectData.monocle3` is a separately distributed adapter built on the
+architecture described here. It restores Monocle 3 `cell_data_set` objects,
+including those whose expression matrices are stored on disk with BPCells.
+Monocle 3 and BPCells are needed only by that adapter package, and
+projectData itself does not depend on either.
+
+This is the same pattern as tinydisk: a data package carries the files, an
+adapter package carries the format-specific discovery and restoration code, and
+projectData handles registration, naming, caching, and provenance. Refer to the
+`projectData.monocle3` repository and its user vignette for instructions on
+creating and consuming CDS data packages. They are not repeated here.
+
+* Repository: <https://github.com/blaserlab/projectData.monocle3>
+* User vignette: `using-monocle3-data`, which you can open with
+  `vignette("using-monocle3-data", package = "projectData.monocle3")` once the
+  adapter is installed.
+
+# 9. Further reading
+
+* The main vignette, `vignette("projectData")`, covers collections, primary
+  collections, preferences, suffix aliases, provenance, and the user-facing
+  workflow.
+* `?data_loader` documents the loader contract, including the callback
+  signatures and the `paths` and `context` fields.
+* `?data_loader_add` and `?data_loader_adapter` document registration, and
+  `?data_manifest_draft` covers manifest authoring.
+* `inst/examples/tinydisk.R` and `inst/examples/fixtures.R` hold the code used
+  in this tutorial. The tests in `tests/testthat/` exercise the contract with
+  an installed adapter package.
