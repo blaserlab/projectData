@@ -7,8 +7,6 @@ explicit choices (a primary collection, per-object preferences, optional suffix
 aliases), records provenance, and provides a loader interface for resources that
 need format-specific restoration.
 
-Status: development version (see `NEWS.md`), not submitted to CRAN.
-
 ## Quick start
 
 ```r
