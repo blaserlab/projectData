@@ -16,3 +16,4 @@ inst/data-raw/regenerated_git_commands.R
 /doc/
 /Meta/
 monocle.bpcells.*.tmp/
+inst/data-raw/

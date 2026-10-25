@@ -1,6 +1,11 @@
 # projectData 0.1.0
 
-* Initial CRAN submission
+* Initial CRAN release.
+* Register installed R data packages as named collections.
+* Provide deferred access and metadata-only resource inventories.
+* Support explicit name-conflict resolution and source-qualified access.
+* Preserve package provenance and installation identity.
+* Introduce a public loader interface for specialized data formats.
 
 # projectData 0.0.0.9007 (development version)
 
