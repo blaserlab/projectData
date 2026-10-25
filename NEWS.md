@@ -6,6 +6,9 @@
 * Support explicit name-conflict resolution and source-qualified access.
 * Preserve package provenance and installation identity.
 * Introduce a public loader interface for specialized data formats.
+* Fixed removal of temporary staging links on Windows (junctions and directory
+  symbolic links), and made link-ownership checks compare locations rather than
+  path text.
 
 # projectData 0.0.0.9007 (development version)
 

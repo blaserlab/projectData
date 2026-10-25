@@ -87,33 +87,66 @@ entry_exists <- function(path) {
   !is.na(link_target(path)) || file.exists(path)
 }
 
-# Removes one link as a link: unlink(recursive = FALSE) does not descend into
-# what a link points to, and, unlike file.remove(), is meant for entries that
-# may be directories. The outcome is checked rather than assumed, because link
-# semantics differ by platform (removal of Windows directory links was not
-# tested). Returns whether the entry is gone. A separate function so tests can
-# force failure.
+# Whether two paths denote the same location, ignoring slash style, trailing
+# slashes, a Windows extended-length prefix, 8.3 short names (via
+# normalizePath(), which expands them for existing paths) and, on Windows, case.
+same_path <- function(a, b) {
+  canon <- function(p) {
+    p <- normalizePath(p, winslash = "/", mustWork = FALSE)
+    p <- sub("^//\\?/", "", p)
+    p <- sub("(?<=.)/+$", "", p, perl = TRUE)
+    if (.Platform$OS.type == "windows") tolower(p) else p
+  }
+  identical(canon(a), canon(b))
+}
+
+# Removes one link as a link, never descending into its target, and checks the
+# outcome rather than assuming it. On Unix unlink(recursive = FALSE) removes a
+# symlink. On Windows a directory link is a symbolic link or a junction (R's
+# file.symlink() may create either); both are reparse points with different
+# tags, and unlink() can refuse one ("mismatch between the tag specified in the
+# request and the tag present in the reparse point"). The fallbacks are the
+# non-recursive `rmdir` of cmd.exe, which removes a junction or directory
+# symlink itself and fails on a non-empty real directory, so it cannot delete
+# target contents. Returns whether the entry is gone. A separate function so
+# tests can force failure.
 remove_link <- function(path) {
-  unlink(path, recursive = FALSE, force = FALSE)
+  suppressWarnings(unlink(path, recursive = FALSE, force = FALSE))
+  if (entry_exists(path) && .Platform$OS.type == "windows") {
+    suppressWarnings(file.remove(path))
+  }
+  if (entry_exists(path) && .Platform$OS.type == "windows") {
+    native <- gsub("/", "\\", path, fixed = TRUE)
+    suppressWarnings(try(system2(Sys.getenv("COMSPEC", "cmd.exe"),
+                                 c("/c", "rmdir", paste0("\"", native, "\"")),
+                                 stdout = FALSE, stderr = FALSE), silent = TRUE))
+  }
   !entry_exists(path)
 }
 
 # Removes the staging directory, which the caller has verified is empty (so the
 # recursive flag, needed to remove any directory portably, deletes nothing).
 remove_empty_dir <- function(path) {
-  unlink(path, recursive = TRUE, force = FALSE)
+  suppressWarnings(unlink(path, recursive = TRUE, force = FALSE))
   !dir.exists(path)
 }
 
 # Whether `to` is still the link this operation made to `from`. Where the
 # platform can read links, anything else (a real file or directory, or a link
-# to another target) is not ours and is left alone.
+# to another target) is not ours and is left alone. Targets are compared as
+# locations, since platforms report them in different spellings.
 is_own_link <- function(to, from) {
   target <- link_target(to)
-  if (!is.na(target)) return(identical(target, from))
-  # No readable link target: a real entry on a platform that can read links is
-  # not ours; elsewhere the record of this operation is all there is.
-  !(.Platform$OS.type == "unix" && entry_exists(to))
+  if (!is.na(target)) return(same_path(target, from))
+  if (!entry_exists(to)) return(TRUE)
+  # Link targets cannot be read here. On Unix a real entry is therefore not
+  # ours. On Windows a directory link may be unreadable, so accept only a
+  # directory whose entry names match the source it was linked to (a metadata
+  # check; nothing is read); a plain file is never ours.
+  if (.Platform$OS.type == "unix") return(FALSE)
+  dir.exists(to) && dir.exists(from) &&
+    identical(sort(list.files(to, all.files = TRUE, no.. = TRUE)),
+              sort(list.files(from, all.files = TRUE, no.. = TRUE)))
 }
 
 # Builds the staged view of a source package. `close()` removes exactly what

@@ -200,7 +200,7 @@ test_that("inst/ and bare resource directories remain standalone roots", {
   expect_true(is.na(ctx$package))
   expect_true(is.na(ctx$version))
   expect_true(is.na(ctx$library))
-  expect_equal(ctx$root, normalizePath(inst, winslash = "/"))
+  expect_true(projectData:::same_path(ctx$root, inst))
 
   # `inst/` of a source tree, passed explicitly, is still a standalone root
   fx <- local_source_pkg()
@@ -228,8 +228,8 @@ test_that("installed roots are used as installed and never modified", {
   ctx <- ad$log$discover[[1]]$context
   expect_equal(ctx$package, "pdsrc")
   expect_equal(ctx$version, "0.4.2")
-  expect_equal(ctx$library, normalizePath(lib, winslash = "/"))
-  expect_equal(ctx$root, normalizePath(installed, winslash = "/"))
+  expect_true(projectData:::same_path(ctx$library, lib))
+  expect_true(projectData:::same_path(ctx$root, installed))
 
   target <- file.path(installed, "projectData", "manifest.dcf")
   expect_error(data_manifest_write(d, target, root = installed), "installed package")
@@ -260,7 +260,7 @@ test_that("unsafe sources are rejected in a source tree", {
   outside <- withr::local_tempdir()
   writeLines("secret", file.path(outside, "secret.rda"))
   link <- file.path(fx$src, "data", "escape.rda")
-  expect_true(isTRUE(suppressWarnings(file.symlink(file.path(outside, "secret.rda"), link))))
+  expect_true(local_link(file.path(outside, "secret.rda"), link))
   expect_error(w(source = "data/escape.rda"), "does not exist")
   expect_false(file.exists(file))
   # links to the staged view did not damage the source tree
@@ -313,7 +313,7 @@ test_that("link failure gives a targeted error and never copies", {
   rec <- local_link_failure()
   err <- expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
   expect_match(conditionMessage(err), "No data was copied", fixed = TRUE)
-  expect_match(conditionMessage(err), file.path(fx$src, "data"), fixed = TRUE)
+  expect_mentions_path(conditionMessage(err), file.path(fx$src, "data"))
   expect_match(conditionMessage(err), "installed-layout", fixed = TRUE)
   expect_equal(rec$copies, 0L)
   expect_length(stage_dirs(), 0L)
@@ -339,8 +339,8 @@ test_that("cleanup does not follow or delete nested links that leave the source 
   data_loader_add(recording_adapters()$tinymat)
   outside <- withr::local_tempdir()
   writeLines("keep", file.path(outside, "precious.txt"))
-  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
-  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "data", "escape"))))
+  expect_true(local_link(outside, file.path(fx$src, "inst", "extdata", "escape")))
+  expect_true(local_link(outside, file.path(fx$src, "data", "escape")))
   dir.create(file.path(fx$src, "inst", "extra"))
   rec <- local_link_failure(fail_from = 3L)
   expect_error(data_manifest_draft(fx$src), class = "projectData_staging_error")
@@ -427,7 +427,7 @@ local_remove_stage_leftovers <- function(env = parent.frame()) {
     for (d in setdiff(stage_dirs(), before)) {
       dir <- file.path(tempdir(), d)
       for (e in list.files(dir, all.files = TRUE, no.. = TRUE, full.names = TRUE)) {
-        unlink(e, recursive = FALSE)
+        projectData:::remove_link(e)
       }
       unlink(dir, recursive = TRUE)
     }
@@ -439,7 +439,7 @@ test_that("complete staging cleanup removes only its links and directory", {
   fx <- local_source_pkg()
   outside <- withr::local_tempdir()
   writeLines("keep", file.path(outside, "precious.txt"))
-  expect_true(isTRUE(file.symlink(outside, file.path(fx$src, "inst", "extdata", "escape"))))
+  expect_true(local_link(outside, file.path(fx$src, "inst", "extdata", "escape")))
   before <- tree_files(fx$src)
 
   st <- projectData:::stage_source_layout(fx$src)

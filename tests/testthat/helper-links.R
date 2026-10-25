@@ -11,7 +11,7 @@ links_supported <- local({
       dir.create(target)
       link <- file.path(dir, "link")
       cached <<- isTRUE(suppressWarnings(file.symlink(target, link))) && dir.exists(link)
-      unlink(link, recursive = FALSE)
+      projectData:::remove_link(link)
       unlink(dir, recursive = TRUE)
     }
     cached
@@ -21,3 +21,37 @@ links_supported <- local({
 skip_if_no_links <- function() {
   testthat::skip_if_not(links_supported(), "directory links are not supported here")
 }
+
+# Creates a link and registers its removal as a link (never recursively, so the
+# target survives) when `env` exits. Registered after the enclosing fixtures, so
+# it runs before their recursive tempdir cleanup.
+local_link <- function(target, link, env = parent.frame()) {
+  ok <- isTRUE(suppressWarnings(file.symlink(target, link)))
+  if (ok) withr::defer(projectData:::remove_link(link), envir = env)
+  ok
+}
+
+# Path spellings that identify `path`: canonical, and on Windows also the 8.3
+# short form (e.g. RUNNER~1 vs runneradmin).
+path_spellings <- function(path) {
+  forms <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (.Platform$OS.type == "windows") {
+    forms <- c(forms, tryCatch(normalizePath(utils::shortPathName(path), winslash = "/"),
+                               error = function(e) character()))
+  }
+  tolower(unique(forms))
+}
+
+# Asserts that `msg` mentions the location `path`, whatever its spelling.
+expect_mentions_path <- function(msg, path) {
+  text <- tolower(gsub("\\", "/", msg, fixed = TRUE))
+  testthat::expect_true(any(vapply(path_spellings(path), grepl, NA, x = text, fixed = TRUE)),
+                        info = paste("message does not mention", path))
+}
+
+test_that("same_path treats spellings of one location as equal and others as different", {
+  d <- withr::local_tempdir()
+  expect_true(projectData:::same_path(d, paste0(d, "/")))
+  expect_true(projectData:::same_path(d, normalizePath(d, winslash = "\\")))
+  expect_false(projectData:::same_path(d, file.path(d, "other")))
+})

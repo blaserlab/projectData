@@ -16,7 +16,7 @@ local_symlinked_pkg <- function(env = parent.frame()) {
   dir.create(file.path(ext, "res"))
   writeLines("x", file.path(ext, "res", "cds_object.rds"))
   unlink(file.path(fx$src, "inst", "extdata"), recursive = TRUE)
-  file.symlink(ext, file.path(fx$src, "inst", "extdata"))
+  local_link(ext, file.path(fx$src, "inst", "extdata"), env = env)
   c(fx, list(ext = ext, manifest = file.path(fx$src, "inst", "projectData", "manifest.dcf")))
 }
 
@@ -51,7 +51,7 @@ test_that("data/ symlinks leaving the tree stay rejected in a source tree", {
   fx <- local_source_pkg()
   out <- withr::local_tempdir()
   writeLines("x", file.path(out, "outside.rda"))
-  file.symlink(file.path(out, "outside.rda"), file.path(fx$src, "data", "outside.rda"))
+  expect_true(local_link(file.path(out, "outside.rda"), file.path(fx$src, "data", "outside.rda")))
   mf <- write_ext_manifest(file.path(fx$src, "inst", "projectData", "manifest.dcf"), "data/outside.rda")
   expect_error(data_manifest_validate(mf), "does not exist inside the package root")
 })
@@ -65,7 +65,7 @@ test_that("E: an installed package never follows a link out of its root", {
   ext <- withr::local_tempdir()
   dir.create(file.path(ext, "res"))
   unlink(file.path(inst, "extdata"), recursive = TRUE)
-  file.symlink(ext, file.path(inst, "extdata"))
+  expect_true(local_link(ext, file.path(inst, "extdata")))
   mf <- write_ext_manifest(file.path(inst, "projectData", "manifest.dcf"), "extdata/res")
   expect_error(data_manifest_validate(mf), "does not exist inside the package root")
   # Naming the source layout for an installed directory cannot relax the rule.
