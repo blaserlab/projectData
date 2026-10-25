@@ -42,7 +42,11 @@ tree_files <- function(path) {
   is_dir <- dir.exists(full)
   sums <- rep(NA_character_, length(rel))
   sums[!is_dir] <- unname(tools::md5sum(full[!is_dir]))
-  data.frame(f = rel, size = file.size(full), sum = sums)
+  # Directory sizes are filesystem-defined (e.g. tmpfs grows 20 bytes per
+  # entry), so only file sizes are meaningful.
+  size <- file.size(full)
+  size[is_dir] <- NA_real_
+  data.frame(f = rel, size = size, sum = sums)
 }
 
 stage_dirs <- function() list.files(tempdir(), "^projectData-stage-")

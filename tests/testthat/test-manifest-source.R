@@ -138,7 +138,10 @@ test_that("a specialized-reader override for a standard resource is written and 
   after <- tree_files(fx$src)
   new <- after$f == "inst/projectData" | startsWith(after$f, "inst/projectData/")
   expect_equal(after$f[new], c("inst/projectData", "inst/projectData/manifest.dcf"))
-  expect_equal(after[!new, ], before, ignore_attr = TRUE)
+  # keyed by relative path: nothing removed, nothing else modified
+  kept <- after[!new, ]
+  expect_setequal(kept$f, before$f)
+  expect_equal(kept[match(before$f, kept$f), ], before, ignore_attr = TRUE)
   expect_length(stage_dirs(), 0L)
 })
 
