@@ -4,17 +4,22 @@ This is the initial CRAN submission of projectData, version 0.1.0.
 
 ## Test environments
 
-- Ubuntu Linux, R-release (local)
+- Ubuntu 22.04, R 4.5.2 (local)
 - Ubuntu Linux, R-devel (R-hub)
 - Windows, R-devel (R-hub)
 - macOS ARM64, R-devel (R-hub)
 
 ## R CMD check results
 
-All checks completed with 0 errors and 0 warnings.
+0 errors | 0 warnings | 1 note
 
-This is a new submission. Any remaining NOTEs are documented below.
+The single NOTE from the local check is:
 
-## Additional comments
+```
+checking CRAN incoming feasibility ... NOTE
+New submission
+```
 
-The package provides deferred access to installed R data collections and an extensible interface for format-specific data loaders.
+This NOTE is expected because this is the first CRAN submission of projectData.
+
+The R-hub checks on Linux, Windows, and macOS completed successfully.
