@@ -180,14 +180,34 @@ test_that("source-tree and installed layouts from issue 2.1 still work", {
              list(resource = "example", loader = "projectData::dataset", source = "data/example.rda",
                   objects = "x"))
   out <- file.path(src, "inst", "projectData", "manifest.dcf")
-  write_quiet(ds, out)
-  expect_length(data_manifest_validate(out), 2L)
-  expect_error(write_quiet(list(ds[[1]], man_desc("alpha")), out, overwrite = TRUE), "duplicate Resource")
-  expect_length(data_manifest_validate(out), 2L)
 
-  fixture_package(lib, "pdinst2", lazy = FALSE,
-                  files = list("extdata/alpha.tinymat" = function(p) tinymat_write(diag(2), p)),
-                  manifest = readLines(out)[c(1:6)])
-  installed <- file.path(lib, "pdinst2", "projectData", "manifest.dcf")
-  expect_length(data_manifest_validate(installed, root = file.path(lib, "pdinst2")), 1L)
+  if (links_supported()) {
+    write_quiet(ds, out)
+    expect_length(data_manifest_validate(out), 2L)
+    expect_error(write_quiet(list(ds[[1]], man_desc("alpha")), out, overwrite = TRUE), "duplicate Resource")
+    expect_length(data_manifest_validate(out), 2L)
+
+    fixture_package(lib, "pdinst2", lazy = FALSE,
+                    files = list("extdata/alpha.tinymat" = function(p) tinymat_write(diag(2), p)),
+                    manifest = readLines(out)[c(1:6)])
+    installed <- file.path(lib, "pdinst2", "projectData", "manifest.dcf")
+    expect_length(data_manifest_validate(installed, root = file.path(lib, "pdinst2")), 1L)
+  } else {
+    # Without directory-link support, authoring against this source tree
+    # cannot stage the installed-shaped view it needs and must fail clearly,
+    # without copying data or leaving any output behind.
+    rec <- local_link_failure()
+    err <- expect_error(write_quiet(ds, out), class = "projectData_staging_error")
+    expect_match(conditionMessage(err), "No data was copied", fixed = TRUE)
+    expect_equal(rec$copies, 0L)
+    expect_false(dir.exists(dirname(out)))
+    expect_length(stage_dirs(), 0L)
+
+    # The installed-layout path does not need staging and still works.
+    fixture_package(lib, "pdinst2", lazy = FALSE,
+                    files = list("extdata/alpha.tinymat" = function(p) tinymat_write(diag(2), p)),
+                    manifest = c("ManifestVersion: 1", "", man_rec("alpha")))
+    installed <- file.path(lib, "pdinst2", "projectData", "manifest.dcf")
+    expect_length(data_manifest_validate(installed, root = file.path(lib, "pdinst2")), 1L)
+  }
 })

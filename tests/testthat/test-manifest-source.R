@@ -289,26 +289,9 @@ test_that("existing manifests are not overwritten and failed writes leave nothin
 })
 
 # Link failure during staging (revision cycle 3, issue 3.1) -------------------
-
-# Fails link creation from the `n`th call on, and records link and copy calls.
-local_link_failure <- function(fail_from = 1L, env = parent.frame()) {
-  rec <- new.env()
-  rec$links <- character()
-  rec$copies <- 0L
-  testthat::local_mocked_bindings(
-    make_link = function(from, to) {
-      rec$links <- c(rec$links, from)
-      if (length(rec$links) >= fail_from) return(FALSE)
-      isTRUE(file.symlink(from, to))
-    },
-    .env = env
-  )
-  testthat::local_mocked_bindings(
-    file.copy = function(...) { rec$copies <- rec$copies + 1L; FALSE },
-    .package = "base", .env = env
-  )
-  rec
-}
+# `local_link_failure()` lives in helper-links.R so other test files can
+# simulate a link-restricted environment without depending on platform
+# capability.
 
 test_that("link failure gives a targeted error and never copies", {
   local_clean_session()

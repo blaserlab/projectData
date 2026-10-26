@@ -9,6 +9,11 @@
 * Fixed removal of temporary staging links on Windows (junctions and directory
   symbolic links), and made link-ownership checks compare locations rather than
   path text.
+* Tests and the `adapters` vignette no longer assume directory-link creation
+  succeeds: environments without link support (e.g. some CRAN Windows builds)
+  now exercise the documented `projectData_staging_error` path instead of
+  failing, and the vignette's executable source-tree-authoring example uses a
+  portable installed-layout directory that needs no links.
 
 # projectData 0.0.0.9007 (development version)
 

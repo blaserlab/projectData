@@ -405,24 +405,54 @@ under a root, using discovery only. `data_manifest_write()` validates and
 writes the descriptors, then reads the text back to confirm it reproduces
 them. `data_manifest_validate()` checks an existing file.
 
+### Authoring root: source tree vs. installed layout
+
+`Source` paths (and what `discover()`/`validate()` callbacks see) are always
+relative to the **installed** package root, where `data/` and the contents of
+`inst/` sit side by side. The recommended entry point for authoring is a
+package **source tree** (a directory with `DESCRIPTION`, `data/` and `inst/`
+kept apart): `data_manifest_draft()`/`data_manifest_write()` build a temporary
+view with the installed shape by creating directory links to `data/` and to
+each top-level entry of `inst/`, hand that view to the callbacks, and remove it
+afterward. Nothing is read, executed or copied to build this view.
+
+That view requires a file system and R session that can create directory
+links (symlinks or, on Windows, junctions). Some environments — including
+some CRAN and CI Windows builds — do not allow this. projectData never falls
+back to copying a data collection, since that copy could be large; if a link
+cannot be created, the call fails with a `projectData_staging_error` naming the
+entry, and nothing is written. In that situation, author from an environment
+that supports links, or pass an **installed package** directory, or an
+explicitly prepared **installed-layout** directory (one where `data/` and the
+contents of `inst/` already sit side by side, as they would after
+installation) as `root`, with `layout = "installed"` or `"standalone"`. No
+staging is needed for either, because the shape callbacks expect is already
+there.
+
+The example below builds such an installed-layout directory directly, so it
+runs the same way regardless of link support:
+
 ```{r authoring-source}
-pkg <- file.path(tempfile("src-"), "my.datapkg")
+pkg <- tempfile("pkg-")
 dir.create(file.path(pkg, "data"), recursive = TRUE)
-writeLines(c("Package: my.datapkg", "Version: 0.1.0", "Title: Example",
-             "Description: Example.", "License: GPL-3"),
-           file.path(pkg, "DESCRIPTION"))
+dir.create(file.path(pkg, "extdata"), recursive = TRUE)
 example_obj <- 1:3
 save(example_obj, file = file.path(pkg, "data", "example.rda"))
 tinymat_write(matrix(as.double(1:6), 2, 3),
-              file.path(pkg, "inst", "extdata", "counts.tinymat"))
+              file.path(pkg, "extdata", "counts.tinymat"))
 
-drafts <- data_manifest_draft(pkg)
+drafts <- data_manifest_draft(pkg, layout = "standalone")
 vapply(drafts, function(d) d$source, "")
 ```
 
+(Authoring directly against a package source tree, with `data/` and `inst/`
+kept apart, looks the same except that `root` is the source directory and
+`layout` defaults to `"auto"`, which detects it from `DESCRIPTION`.)
+
 The `.rda` dataset is a standard dataset and needs no manifest entry. The
 adapter found the tinymat. A draft does not know which package supplies the
-loader, so add that, then write it to the conventional location:
+loader, so add that, then write the manifest. Inside an actual package source,
+the conventional location is `inst/projectData/manifest.dcf`:
 
 ```{r authoring-write}
 drafts <- lapply(drafts, function(d) {
@@ -431,8 +461,8 @@ drafts <- lapply(drafts, function(d) {
   d$adapter <- list(package = "tinydiskAdapter")
   d
 })
-manifest <- file.path(pkg, "inst", "projectData", "manifest.dcf")
-data_manifest_write(drafts, manifest)
+manifest <- file.path(pkg, "projectData", "manifest.dcf")
+data_manifest_write(drafts, manifest, root = pkg, layout = "standalone")
 writeLines(readLines(manifest))
 ```
 
@@ -445,7 +475,7 @@ descriptor can, so the writer refuses rather than change anything silently:
 ```{r authoring-errors, error = TRUE}
 data_manifest_write(list(resource = "counts", loader = "tinydisk::tinymat",
                          source = "../elsewhere", objects = "counts"),
-                    file.path(pkg, "inst", "projectData", "other.dcf"))
+                    file.path(pkg, "other.dcf"), root = pkg, layout = "standalone")
 ```
 
 ## When the adapter is not installed

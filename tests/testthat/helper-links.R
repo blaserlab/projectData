@@ -22,6 +22,30 @@ skip_if_no_links <- function() {
   testthat::skip_if_not(links_supported(), "directory links are not supported here")
 }
 
+# Fails link creation from the `n`th call on, and records link and copy calls.
+# Forces the `projectData_staging_error` path deterministically, so the
+# link-restricted condition can be exercised on any platform (including CRAN's
+# Windows build, where directory links are unavailable) without relying on
+# actual filesystem capability.
+local_link_failure <- function(fail_from = 1L, env = parent.frame()) {
+  rec <- new.env()
+  rec$links <- character()
+  rec$copies <- 0L
+  testthat::local_mocked_bindings(
+    make_link = function(from, to) {
+      rec$links <- c(rec$links, from)
+      if (length(rec$links) >= fail_from) return(FALSE)
+      isTRUE(file.symlink(from, to))
+    },
+    .env = env
+  )
+  testthat::local_mocked_bindings(
+    file.copy = function(...) { rec$copies <- rec$copies + 1L; FALSE },
+    .package = "base", .env = env
+  )
+  rec
+}
+
 # Creates a link and registers its removal as a link (never recursively, so the
 # target survives) when `env` exits. Registered after the enclosing fixtures, so
 # it runs before their recursive tempdir cleanup.
@@ -51,7 +75,7 @@ path_spellings <- function(path) {
 }
 
 # Asserts that `msg` mentions the location `path`, whatever its spelling.
-expect_mentions_path <- function(msg, path, extra = NULL) { # TEMP-DEBUG
+expect_mentions_path <- function(msg, path, extra = NULL) {
   text <- tolower(gsub("\\", "/", msg, fixed = TRUE))
   text <- paste(text, gsub("(?<=.)/{2,}", "/", text, perl = TRUE))
   testthat::expect_true(any(vapply(path_spellings(path), grepl, NA, x = text, fixed = TRUE)),
