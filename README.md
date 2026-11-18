@@ -1,11 +1,21 @@
 # projectData
 
+[![CRAN version](https://www.r-pkg.org/badges/version/projectData)](https://CRAN.R-project.org/package=projectData)
+
 projectData attaches installed data packages ("collections") in a session
 without reading their data, exposes objects through deferred bindings that are
 read on first use (with a message beforehand), resolves name conflicts through
 explicit choices (a primary collection, per-object preferences, optional suffix
 aliases), records provenance, and provides a loader interface for resources that
 need format-specific restoration.
+
+## Installation
+
+Install projectData from [CRAN](https://CRAN.R-project.org/package=projectData):
+
+```r
+install.packages("projectData")
+```
 
 ## Quick start
 
